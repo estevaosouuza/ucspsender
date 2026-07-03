@@ -3,11 +3,9 @@ package com.ucsp.sender
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.SurfaceTexture
 import android.os.Bundle
 import android.util.Log
-import android.view.Surface
-import android.view.TextureView
+import android.view.SurfaceHolder
 import android.widget.AdapterView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -77,22 +75,17 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread { binding.textSignal.text = getString(R.string.signal_format, level, maxLevel) }
         }
 
-        binding.previewTexture.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-            override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
-                cameraRenderer?.setPreviewSurface(Surface(surfaceTexture), width, height)
+        binding.previewSurface.holder.addCallback(object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) = Unit
+
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                cameraRenderer?.setPreviewSurface(holder.surface, width, height)
             }
 
-            override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
-                cameraRenderer?.setPreviewSurface(Surface(surfaceTexture), width, height)
-            }
-
-            override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
                 cameraRenderer?.setPreviewSurface(null, 0, 0)
-                return true
             }
-
-            override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
-        }
+        })
 
         if (savedInstanceState?.getBoolean(STATE_IS_STREAMING) == true) {
             // Explicitly re-apply the fields we need instead of relying on the standard
@@ -189,12 +182,9 @@ class MainActivity : AppCompatActivity() {
         val renderer = CameraRenderer()
         cameraRenderer = renderer
         val cameraFacingSurface = renderer.start(encoderSurface, width, height)
-        if (binding.previewTexture.isAvailable) {
-            renderer.setPreviewSurface(
-                Surface(binding.previewTexture.surfaceTexture),
-                binding.previewTexture.width,
-                binding.previewTexture.height
-            )
+        val previewHolder = binding.previewSurface.holder
+        if (previewHolder.surface?.isValid == true) {
+            renderer.setPreviewSurface(previewHolder.surface, binding.previewSurface.width, binding.previewSurface.height)
         }
 
         val camera = CameraController(this, this)

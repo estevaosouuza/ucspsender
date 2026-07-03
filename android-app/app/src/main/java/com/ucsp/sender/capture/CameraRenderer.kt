@@ -85,7 +85,7 @@ class CameraRenderer {
         return resultHolder[0] ?: error("CameraRenderer failed to initialize")
     }
 
-    /** Attaches or replaces the on-screen preview surface (e.g. once a TextureView becomes available). */
+    /** Attaches or replaces the on-screen preview surface (e.g. once a SurfaceView's Surface becomes available). */
     fun setPreviewSurface(surface: Surface?, width: Int, height: Int) {
         renderHandler.post {
             previewEglSurface?.let { eglCore.releaseSurface(it) }
