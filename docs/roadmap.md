@@ -49,15 +49,25 @@ a latência ainda não bata os 80–300ms alvo (isso é trabalho da Fase 2+).
 ponta a ponta pela primeira vez).
 
 Android:
-- `capture/CameraController.kt` — CameraX com `Surface` do `MediaCodec.createInputSurface()`
-- `encode/H264Encoder.kt` — MediaCodec H264 Baseline, sem B-frame, GOP curto (~1s)
+- `capture/CameraController.kt` — CameraX `Preview` (visível, `PreviewView`) +
+  `ImageAnalysis` (YUV_420_888 → encoder), combinação garantida em qualquer device
+- `encode/H264Encoder.kt` — MediaCodec H264 Baseline em modo buffer síncrono (não
+  Surface), sem B-frame, GOP curto (~1s); dropa frame se o encoder não tiver buffer
+  livre em vez de bloquear
 - `network/UcspHeader.kt` + `UcspPacketizer.kt` — implementação do header de 32 bytes
 - `network/FecEncoder.kt` — paridade XOR
 - `network/UcspSender.kt` — socket UDP único (envia vídeo/FEC, recebe backchannel)
 - `network/BackchannelListener.kt` — parse de reports e keyframe requests
+- `network/WifiSignalMonitor.kt` — força do sinal Wi-Fi (RSSI, 0–4 barras) exibida no
+  canto superior esquerdo
 - `thermal/ThermalMonitor.kt` — stub que loga transições (liga na Fase 2)
-- `service/StreamingService.kt` — foreground service + wake lock
-- `ui/` + `MainActivity.kt` — IP/porta do PC, start/stop
+- `service/StreamingService.kt` — só notificação de foreground service (o pipeline
+  inteiro roda na `MainActivity`, já que o preview da câmera precisa de uma Activity
+  visível)
+- `MainActivity.kt` — preview da câmera em tela cheia, controles de resolução (480p
+  /720p/1080p) e FPS (15/24/30) ordenados do menor para o maior (menor = menor
+  latência), layout `layout/` (retrato: controles embaixo) e `layout-land/` (paisagem:
+  controles na lateral)
 
 OBS plugin:
 - `plugin-main.cpp` + `ucsp-source.cpp/.h` — `obs_source_info` (`OBS_SOURCE_ASYNC_VIDEO`)
