@@ -1,52 +1,80 @@
 package com.ucsp.sender.capture
 
 import android.content.Context
+import android.media.Image
 import android.util.Range
 import android.util.Size
 import android.view.Surface
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import java.util.concurrent.Executors
 
 /**
- * Binds CameraX's Preview use case directly to the encoder's input Surface, so camera
- * frames are rendered straight into MediaCodec without a CPU YUV copy through
- * ImageAnalysis. Locks the capture FPS range via Camera2Interop so the encoder gets a
- * steady frame rate to work with.
+ * Binds CameraX's Preview use case to a visible [PreviewView] (so the operator can see
+ * what's being streamed) and an ImageAnalysis use case that hands YUV_420_888 frames to
+ * [onFrame] for encoding -- Preview + ImageAnalysis is one of CameraX's guaranteed
+ * supported concurrent use-case combinations on every device.
+ *
+ * targetRotation is pinned to ROTATION_0 for the analysis stream so the encoded video's
+ * orientation stays fixed to the camera sensor's native mounting regardless of how the
+ * phone is physically rotated -- only the on-screen preview follows the display rotation.
  */
 class CameraController(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner
 ) {
     private var cameraProvider: ProcessCameraProvider? = null
+    private val analysisExecutor = Executors.newSingleThreadExecutor()
 
     @OptIn(ExperimentalCamera2Interop::class)
-    fun start(targetSurface: Surface, width: Int, height: Int, fps: Int) {
+    fun start(
+        previewView: PreviewView,
+        width: Int,
+        height: Int,
+        fps: Int,
+        onFrame: (image: Image, presentationTimeUs: Long) -> Unit
+    ) {
         val providerFuture = ProcessCameraProvider.getInstance(context)
         providerFuture.addListener({
             val provider = providerFuture.get()
             cameraProvider = provider
 
-            val previewBuilder = Preview.Builder()
+            val preview = Preview.Builder()
                 .setTargetResolution(Size(width, height))
+                .build()
+            preview.setSurfaceProvider(previewView.surfaceProvider)
 
-            Camera2Interop.Extender(previewBuilder)
+            val analysisBuilder = ImageAnalysis.Builder()
+                .setTargetResolution(Size(width, height))
+                .setTargetRotation(Surface.ROTATION_0)
+                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+
+            Camera2Interop.Extender(analysisBuilder)
                 .setCaptureRequestOption(
                     android.hardware.camera2.CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
                     Range(fps, fps)
                 )
 
-            val preview = previewBuilder.build()
-            preview.setSurfaceProvider(ContextCompat.getMainExecutor(context)) { request ->
-                request.provideSurface(targetSurface, ContextCompat.getMainExecutor(context)) { }
+            val analysis = analysisBuilder.build()
+            analysis.setAnalyzer(analysisExecutor) { imageProxy ->
+                val image = imageProxy.image
+                if (image != null) {
+                    val presentationTimeUs = imageProxy.imageInfo.timestamp / 1000
+                    onFrame(image, presentationTimeUs)
+                }
+                imageProxy.close()
             }
 
             provider.unbindAll()
-            provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview)
+            provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
         }, ContextCompat.getMainExecutor(context))
     }
 

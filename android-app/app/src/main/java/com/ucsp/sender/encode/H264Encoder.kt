@@ -1,21 +1,28 @@
 package com.ucsp.sender.encode
 
+import android.media.Image
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.os.Bundle
 import android.util.Log
-import android.view.Surface
+import kotlin.concurrent.thread
 
 /**
- * H.264 Baseline encoder fed by a Surface (CameraX renders straight into it — no CPU YUV
- * copy). Baseline profile inherently forbids B-slices, so "no B-frames" falls out of the
- * profile choice rather than needing a separate flag. GOP is kept short (~1s) so the
+ * H.264 Baseline encoder fed frame-by-frame from camera YUV buffers (buffer-input mode,
+ * not Surface-input) so the same camera session can also drive a visible on-screen
+ * preview. Baseline profile inherently forbids B-slices, so "no B-frames" falls out of
+ * the profile choice rather than needing a separate flag. GOP is kept short (~1s) so the
  * stream recovers quickly after a keyframe request or an unrecoverable frame drop.
  *
  * The one-time SPS/PPS buffer (BUFFER_FLAG_CODEC_CONFIG) is cached and re-prepended to
  * every subsequent keyframe's NAL, per ucsp-spec.md §2, so any IDR sent over UCSP is
  * independently decodable.
+ *
+ * Runs in MediaCodec's classic synchronous mode: [feedFrame] is called directly from the
+ * camera's analyzer thread and dequeues an input buffer with a short timeout -- if the
+ * encoder has no free buffer yet (falling behind), the frame is dropped instead of
+ * blocking the camera pipeline, matching the "degrade, never freeze" philosophy.
  */
 class H264Encoder(
     private val width: Int,
@@ -27,15 +34,20 @@ class H264Encoder(
     companion object {
         private const val TAG = "H264Encoder"
         private const val GOP_SECONDS = 1
+        private const val INPUT_DEQUEUE_TIMEOUT_US = 10_000L
+        private const val OUTPUT_DEQUEUE_TIMEOUT_US = 10_000L
     }
 
     private lateinit var codec: MediaCodec
-    private var inputSurface: Surface? = null
     private var cachedCodecConfig: ByteArray? = null
+    private var outputThread: Thread? = null
 
-    fun createInputSurface(): Surface {
+    @Volatile
+    private var running = false
+
+    fun start() {
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
-            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
             setInteger(MediaFormat.KEY_BIT_RATE, bitrateBps)
             setInteger(MediaFormat.KEY_FRAME_RATE, fps)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, GOP_SECONDS)
@@ -45,40 +57,60 @@ class H264Encoder(
         }
 
         codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
-        codec.setCallback(object : MediaCodec.Callback() {
-            override fun onInputBufferAvailable(codec: MediaCodec, index: Int) = Unit
-
-            override fun onOutputBufferAvailable(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
-                handleOutputBuffer(codec, index, info)
-            }
-
-            override fun onError(codec: MediaCodec, e: MediaCodec.CodecException) {
-                Log.e(TAG, "MediaCodec encoder error", e)
-            }
-
-            override fun onOutputFormatChanged(codec: MediaCodec, format: MediaFormat) = Unit
-        })
         codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        inputSurface = codec.createInputSurface()
         codec.start()
-        return inputSurface as Surface
+        running = true
+        outputThread = thread(name = "H264EncoderOutput") { drainOutputLoop() }
     }
 
-    private fun handleOutputBuffer(codec: MediaCodec, index: Int, info: MediaCodec.BufferInfo) {
-        val outputBuffer = codec.getOutputBuffer(index)
-        if (outputBuffer == null) {
-            codec.releaseOutputBuffer(index, false)
-            return
+    /**
+     * Copies [cameraImage]'s planes into a free encoder input buffer and queues it.
+     * Returns false (frame dropped) if the encoder has no input buffer free right now.
+     */
+    fun feedFrame(cameraImage: Image, presentationTimeUs: Long): Boolean {
+        val index = try {
+            codec.dequeueInputBuffer(INPUT_DEQUEUE_TIMEOUT_US)
+        } catch (e: IllegalStateException) {
+            return false
+        }
+        if (index < 0) return false
+
+        val inputImage = codec.getInputImage(index)
+        if (inputImage == null) {
+            codec.queueInputBuffer(index, 0, 0, presentationTimeUs, 0)
+            return false
         }
 
+        copyImagePlanes(cameraImage, inputImage)
+        val size = width * height * 3 / 2
+        codec.queueInputBuffer(index, 0, size, presentationTimeUs, 0)
+        return true
+    }
+
+    private fun drainOutputLoop() {
+        val bufferInfo = MediaCodec.BufferInfo()
+        while (running) {
+            val index = try {
+                codec.dequeueOutputBuffer(bufferInfo, OUTPUT_DEQUEUE_TIMEOUT_US)
+            } catch (e: IllegalStateException) {
+                break
+            }
+            if (index < 0) continue
+
+            val outputBuffer = codec.getOutputBuffer(index)
+            if (outputBuffer != null) handleOutputBuffer(outputBuffer, bufferInfo)
+            codec.releaseOutputBuffer(index, false)
+        }
+    }
+
+    private fun handleOutputBuffer(buffer: java.nio.ByteBuffer, info: MediaCodec.BufferInfo) {
         val data = ByteArray(info.size)
-        outputBuffer.position(info.offset)
-        outputBuffer.limit(info.offset + info.size)
-        outputBuffer.get(data)
+        buffer.position(info.offset)
+        buffer.limit(info.offset + info.size)
+        buffer.get(data)
 
         if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
             cachedCodecConfig = data
-            codec.releaseOutputBuffer(index, false)
             return
         }
 
@@ -87,7 +119,6 @@ class H264Encoder(
         val accessUnit = if (isKeyframe && codecConfig != null) codecConfig + data else data
 
         onEncodedFrame(accessUnit, isKeyframe, info.presentationTimeUs)
-        codec.releaseOutputBuffer(index, false)
     }
 
     fun requestKeyframe() {
@@ -97,13 +128,51 @@ class H264Encoder(
     }
 
     fun release() {
+        running = false
+        outputThread?.join(500)
         try {
             codec.stop()
         } catch (e: IllegalStateException) {
             Log.w(TAG, "Encoder was not running at release time", e)
         }
         codec.release()
-        inputSurface?.release()
-        inputSurface = null
+    }
+
+    private fun copyImagePlanes(src: Image, dst: Image) {
+        copyPlane(src.planes[0], dst.planes[0], src.width, src.height)
+        copyPlane(src.planes[1], dst.planes[1], src.width / 2, src.height / 2)
+        copyPlane(src.planes[2], dst.planes[2], src.width / 2, src.height / 2)
+    }
+
+    /**
+     * Copies one YUV_420_888 plane, honoring row/pixel strides on both sides -- camera
+     * vendors and encoders disagree on whether chroma planes are fully planar
+     * (pixelStride=1) or semiplanar/interleaved (pixelStride=2), so a flat buffer copy
+     * would corrupt the image on many devices.
+     */
+    private fun copyPlane(src: Image.Plane, dst: Image.Plane, width: Int, height: Int) {
+        val srcBuffer = src.buffer
+        val dstBuffer = dst.buffer
+        val srcRowStride = src.rowStride
+        val srcPixelStride = src.pixelStride
+        val dstRowStride = dst.rowStride
+        val dstPixelStride = dst.pixelStride
+
+        if (srcPixelStride == dstPixelStride) {
+            val rowBytes = (width - 1) * srcPixelStride + 1
+            for (row in 0 until height) {
+                srcBuffer.position(row * srcRowStride)
+                srcBuffer.limit(minOf(srcBuffer.position() + rowBytes, srcBuffer.capacity()))
+                dstBuffer.position(row * dstRowStride)
+                dstBuffer.put(srcBuffer)
+            }
+            srcBuffer.limit(srcBuffer.capacity())
+        } else {
+            for (row in 0 until height) {
+                for (col in 0 until width) {
+                    dstBuffer.put(row * dstRowStride + col * dstPixelStride, srcBuffer.get(row * srcRowStride + col * srcPixelStride))
+                }
+            }
+        }
     }
 }

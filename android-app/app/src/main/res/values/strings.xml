@@ -7,4 +7,6 @@
     <string name="button_stop">Parar transmissão</string>
     <string name="status_idle">Parado</string>
     <string name="status_streaming">Transmitindo</string>
+    <string name="signal_unknown">Sinal: --</string>
+    <string name="signal_format">Sinal: %1$d/%2$d</string>
 </resources>

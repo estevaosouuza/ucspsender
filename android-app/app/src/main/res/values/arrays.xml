@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Ordered lowest-latency-first: lower resolution/fps means less data to encode,
+         packetize and send per frame, which is what actually lowers latency on a
+         constrained network; higher entries trade that for image quality. -->
+    <string-array name="resolution_labels">
+        <item>480p (854x480)</item>
+        <item>720p (1280x720)</item>
+        <item>1080p (1920x1080)</item>
+    </string-array>
+
+    <string-array name="fps_labels">
+        <item>15 fps</item>
+        <item>24 fps</item>
+        <item>30 fps</item>
+    </string-array>
+</resources>
