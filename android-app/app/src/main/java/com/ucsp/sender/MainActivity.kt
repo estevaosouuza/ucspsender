@@ -152,9 +152,7 @@ class MainActivity : AppCompatActivity() {
         camera.start(
             encoderSurface, width, height, fps,
             onFatalError = { e -> handleFatalError("Falha ao iniciar a câmera", e) }
-        ) { bitmap ->
-            runOnUiThread { binding.previewImage.setImageBitmap(bitmap) }
-        }
+        )
 
         thermalMonitor = ThermalMonitor(this).apply { start() }
 
