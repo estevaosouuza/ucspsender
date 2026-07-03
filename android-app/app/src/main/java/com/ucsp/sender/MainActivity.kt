@@ -130,7 +130,8 @@ class MainActivity : AppCompatActivity() {
             networkExecutor.execute { sender?.send(datagrams) }
         }
         encoder = h264Encoder
-        if (!h264Encoder.start()) {
+        val encoderSurface = h264Encoder.createInputSurface()
+        if (encoderSurface == null) {
             encoder = null
             return
         }
@@ -149,10 +150,10 @@ class MainActivity : AppCompatActivity() {
         val camera = CameraController(this, this)
         cameraController = camera
         camera.start(
-            binding.previewView, width, height, fps,
+            encoderSurface, width, height, fps,
             onFatalError = { e -> handleFatalError("Falha ao iniciar a câmera", e) }
-        ) { image, presentationTimeUs ->
-            h264Encoder.feedFrame(image, presentationTimeUs)
+        ) { bitmap ->
+            runOnUiThread { binding.previewImage.setImageBitmap(bitmap) }
         }
 
         thermalMonitor = ThermalMonitor(this).apply { start() }
