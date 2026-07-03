@@ -29,18 +29,24 @@ class UcspSender(
     @Volatile
     private var running = false
     private var receiveThread: Thread? = null
+    private var sentDatagramCount = 0L
 
     fun start() {
         if (running) return
         running = true
         socket.soTimeout = RECEIVE_TIMEOUT_MS
         receiveThread = Thread(::receiveLoop, "UcspBackchannelRx").also { it.start() }
+        Log.i(TAG, "UcspSender socket bound, local port=${socket.localPort}, target=$remoteAddress:$remotePort")
     }
 
     fun send(datagrams: List<ByteArray>) {
         for (datagram in datagrams) {
             try {
                 socket.send(DatagramPacket(datagram, datagram.size, remoteAddress, remotePort))
+                sentDatagramCount++
+                if (sentDatagramCount <= 3 || sentDatagramCount % 150 == 0L) {
+                    Log.i(TAG, "Sent $sentDatagramCount datagrams so far to $remoteAddress:$remotePort")
+                }
             } catch (e: IOException) {
                 Log.w(TAG, "Failed to send UCSP datagram", e)
             }

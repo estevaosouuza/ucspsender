@@ -136,9 +136,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         networkExecutor.execute {
-            val ucspSender = UcspSender(pcIp, pcPort, backchannelListener)
-            sender = ucspSender
-            ucspSender.start()
+            try {
+                val ucspSender = UcspSender(pcIp, pcPort, backchannelListener)
+                sender = ucspSender
+                ucspSender.start()
+                Log.i(TAG, "UcspSender started, target=$pcIp:$pcPort")
+            } catch (e: Exception) {
+                handleFatalError("Falha ao iniciar o envio de rede (IP/porta inválidos?)", e)
+            }
         }
 
         val camera = CameraController(this, this)
