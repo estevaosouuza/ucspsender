@@ -77,6 +77,7 @@ private:
 	bool has_last_frame_arrival_ = false;
 	std::chrono::steady_clock::time_point last_frame_arrival_tp_;
 	uint64_t last_frame_pts_us_ = 0;
+	uint64_t completed_frame_count_ = 0;
 
 	// Shared with the backchannel timer thread; guarded by stats_mutex_.
 	std::mutex stats_mutex_;

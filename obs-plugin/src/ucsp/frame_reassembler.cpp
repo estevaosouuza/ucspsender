@@ -4,6 +4,9 @@
 #include <algorithm>
 #include <cmath>
 
+#include <obs-module.h>
+#include <plugin-support.h>
+
 namespace ucsp {
 
 using namespace std::chrono;
@@ -34,6 +37,8 @@ FrameReassembler::FrameBuffer *FrameReassembler::acquire_slot(const Header &head
 		return nullptr; // stale straggler packet for a frame we've already moved past
 
 	if (slot.active && !slot.completed) {
+		obs_log(LOG_WARNING, "ucsp: discarding incomplete frame %u (%d/%d packets)", slot.frame_id,
+			slot.received_count, slot.total_packets);
 		if (on_frame_discarded_)
 			on_frame_discarded_();
 	}
@@ -151,6 +156,12 @@ void FrameReassembler::try_complete(FrameBuffer &slot)
 		return;
 
 	slot.completed = true;
+	completed_frame_count_++;
+	if (completed_frame_count_ <= 3 || completed_frame_count_ % 90 == 0) {
+		obs_log(LOG_INFO, "ucsp: completed frame %u (%s, %d packets, %llu total frames so far)", slot.frame_id,
+			slot.is_keyframe ? "keyframe" : "delta", slot.total_packets,
+			static_cast<unsigned long long>(completed_frame_count_));
+	}
 
 	size_t total_len = 0;
 	for (auto &chunk : slot.chunks)

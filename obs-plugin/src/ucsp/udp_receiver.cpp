@@ -102,6 +102,9 @@ bool UdpReceiver::sender_address(sockaddr_in *out) const
 void UdpReceiver::receive_loop()
 {
 	std::vector<uint8_t> buffer(2048);
+	uint64_t packet_count = 0;
+
+	obs_log(LOG_INFO, "ucsp: receive loop started, waiting for packets");
 
 	while (running_) {
 		sockaddr_in from_addr{};
@@ -119,14 +122,28 @@ void UdpReceiver::receive_loop()
 			continue;
 		}
 
-		if (static_cast<size_t>(received) < HEADER_SIZE)
+		if (static_cast<size_t>(received) < HEADER_SIZE) {
+			obs_log(LOG_WARNING, "ucsp: received undersized datagram (%d bytes), ignoring", received);
 			continue;
+		}
 
+		bool is_first_packet = false;
 		{
 			std::lock_guard<std::mutex> lock(addr_mutex_);
+			is_first_packet = !has_sender_addr_;
 			sender_addr_ = from_addr;
 			has_sender_addr_ = true;
 		}
+
+		if (is_first_packet) {
+			char ip_str[INET_ADDRSTRLEN] = {0};
+			inet_ntop(AF_INET, &from_addr.sin_addr, ip_str, sizeof(ip_str));
+			obs_log(LOG_INFO, "ucsp: first packet received from %s:%d", ip_str, ntohs(from_addr.sin_port));
+		}
+
+		packet_count++;
+		if (packet_count % 150 == 0)
+			obs_log(LOG_INFO, "ucsp: %llu packets received so far", static_cast<unsigned long long>(packet_count));
 
 		Header header = Header::parse(buffer.data());
 		size_t payload_len = static_cast<size_t>(received) - HEADER_SIZE;
