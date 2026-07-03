@@ -1,7 +1,24 @@
 # Roadmap de fases
 
-Status: **Fase 1 em andamento** (implementação completa, pendente build final do FFmpeg
-e teste ponta a ponta).
+Status: **Fase 1 implementada e compilando dos dois lados.** Falta apenas a verificação
+manual final (ver "Próximo passo manual" abaixo) e o teste ponta a ponta com um celular
+físico.
+
+## Próximo passo manual (precisa de você)
+
+1. `obs-plugin/build_x64/rundir/RelWithDebInfo/ucsp-source.dll` foi copiado, junto com as
+   DLLs do FFmpeg (`avcodec-62.dll`, `avformat-62.dll`, `avutil-60.dll`, `swscale-9.dll`,
+   `swresample-6.dll`), para `C:\ProgramData\obs-studio\plugins\ucsp-source\bin\64bit\` +
+   `...\data\locale\en-US.ini` — essa é a mesma convenção que o plugin NDI (`distroav`)
+   já usa nessa máquina, então não precisa de admin nem de mexer em `Program Files`.
+2. Abri o OBS Studio para testar e ele mostrou o diálogo de **"Crash or unclean shutdown
+   detected"** (por causa de um `Stop-Process -Force` que usei num teste anterior) — esse
+   diálogo está esperando você clicar em **"Start Normally"** (não "Safe Mode", senão os
+   plugins de terceiros são desabilitados).
+3. Depois disso, em **Fontes → + → procure "UCSP Camera Source"** — se aparecer na lista,
+   o plugin carregou corretamente. Confira também em Ajuda → Log Files → Show Log File se
+   não há erro relacionado a `ucsp-source.dll`.
+4. Porta padrão de escuta: **5600** (configurável nas propriedades da fonte).
 
 ## Fase 0 — Setup de ambiente e scaffold
 
@@ -49,6 +66,17 @@ OBS plugin:
 - `ucsp/fec_decoder.cpp/.h` — recuperação XOR
 - `ucsp/h264_decoder.cpp/.h` — libavcodec, saída I420 → `obs_source_frame2`
 - `ucsp/backchannel_sender.cpp/.h` — reports ~50ms + keyframe request sob demanda
+
+**Para testar com um celular Android físico**:
+1. APK debug já buildado em
+   `android-app/app/build/outputs/apk/debug/app-debug.apk` — instale com
+   `adb install app-debug.apk` (com o celular em modo depuração USB) ou copie e instale
+   manualmente (precisa permitir "fontes desconhecidas").
+2. Celular e PC precisam estar na mesma rede Wi-Fi/LAN.
+3. No app, informe o IP local do PC (`ipconfig` no PC para achar, ex. `192.168.x.x`) e a
+   porta `5600`, toque em "Iniciar transmissão" (vai pedir permissão de câmera).
+4. No OBS, adicione a fonte "UCSP Camera Source" com a mesma porta `5600` — o vídeo deve
+   aparecer assim que o primeiro pacote chegar.
 
 **Critério de "pronto" da Fase 1**:
 1. Vídeo ao vivo do celular aparece numa fonte do OBS ("UCSP Camera Source").
