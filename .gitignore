@@ -1,0 +1,34 @@
+# --- Android / Gradle ---
+android-app/**/build/
+android-app/.gradle/
+android-app/**/.gradle/
+android-app/local.properties
+android-app/.idea/
+android-app/**/*.iml
+android-app/captures/
+android-app/.cxx/
+*.apk
+*.aab
+
+# --- CMake / C++ / OBS plugin ---
+obs-plugin/build/
+obs-plugin/**/build/
+obs-plugin/CMakeCache.txt
+obs-plugin/**/CMakeFiles/
+obs-plugin/out/
+*.obj
+*.pdb
+*.ilk
+
+# --- vcpkg ---
+vcpkg/installed/
+vcpkg/buildtrees/
+vcpkg/packages/
+vcpkg/downloads/
+
+# --- OS / editor ---
+.vscode/
+.vs/
+Thumbs.db
+.DS_Store
+*.log
