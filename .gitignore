@@ -23,6 +23,9 @@ obs-plugin/out/
 *.pdb
 *.ilk
 
+# --- Release artifacts (attached to GitHub Releases, not committed) ---
+/dist/
+
 # --- vcpkg ---
 vcpkg/installed/
 vcpkg/buildtrees/
