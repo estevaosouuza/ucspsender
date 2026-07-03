@@ -1,8 +1,6 @@
 package com.ucsp.sender.capture
 
 import android.content.Context
-import android.graphics.Bitmap
-import android.media.Image
 import android.util.Log
 import android.util.Range
 import android.util.Size
@@ -10,30 +8,32 @@ import android.view.Surface
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
-import java.util.concurrent.Executors
-import kotlin.math.min
 
 /**
  * Binds CameraX's Preview use case directly to the encoder's input Surface (the
  * proven-reliable path -- CameraX renders straight into MediaCodec, no CPU copy) as the
- * only full-resolution stream. A second, much lower-resolution ImageAnalysis stream is
- * bound alongside purely to render a small on-screen preview -- an earlier attempt that
- * ran both streams at the *same* (encode) resolution overloaded at least one real
- * device's camera pipeline badly enough to stall both streams, so this one deliberately
- * requests a small fixed size for the analysis stream regardless of encode resolution to
- * keep its marginal cost low.
+ * primary, full-resolution stream. A second, much lower-resolution Preview is bound
+ * alongside for the on-screen [PreviewView] -- an earlier attempt ran both streams at
+ * the *same* (encode) resolution and overloaded at least one real device's camera
+ * pipeline badly enough to stall both, so this one deliberately requests a small fixed
+ * size for the display stream regardless of encode resolution to keep its marginal cost
+ * low.
  *
- * targetRotation is pinned to ROTATION_0 on the analysis stream, and left at CameraX's
- * default (effectively also unrotated, since nothing here is tied to a display/View) on
- * the encoder stream -- both the preview and the encoded video stay a fixed, stable
- * orientation/aspect regardless of how the phone is physically held, which is what
- * actually matches this app's use case (a camera mounted or held for a steady 16:9 feed
- * to OBS, not a handheld photo app that should rotate with the device).
+ * Using a second real Preview (rendered by PreviewView itself, GPU-composited) instead
+ * of manually converting ImageAnalysis frames to a Bitmap is what gives an actual smooth
+ * video preview instead of a hand-drawn frame sequence -- PreviewView also handles
+ * orientation for its own display automatically, so it doesn't touch the encoder
+ * stream's fixed, unrotated orientation at all.
+ *
+ * targetRotation is left at CameraX's default (effectively unrotated, since nothing here
+ * is tied to a display/View) on the encoder stream, so the encoded video stays a fixed,
+ * stable orientation/aspect regardless of how the phone is physically held -- matches
+ * this app's use case (a camera mounted or held for a steady 16:9 feed to OBS).
  */
 class CameraController(
     private val context: Context,
@@ -41,27 +41,19 @@ class CameraController(
 ) {
     companion object {
         private const val TAG = "CameraController"
-        private val PREVIEW_ANALYSIS_SIZE = Size(320, 240)
-        private const val PREVIEW_SAMPLE_STEP = 2 // further downsample within the already-small analysis frame
+        private val PREVIEW_DISPLAY_SIZE = Size(320, 240)
     }
 
     private var cameraProvider: ProcessCameraProvider? = null
-    private val analysisExecutor = Executors.newSingleThreadExecutor()
-
-    // Reused across frames instead of allocating a new Bitmap/IntArray on every analyzed
-    // frame -- that per-frame allocation (plus the GC churn it caused) was most of why
-    // the on-screen preview lagged behind real time instead of tracking it smoothly.
-    private var previewBitmap: Bitmap? = null
-    private var previewPixels: IntArray? = null
 
     @OptIn(ExperimentalCamera2Interop::class)
     fun start(
+        previewView: PreviewView,
         encoderSurface: Surface,
         width: Int,
         height: Int,
         fps: Int,
-        onFatalError: (Throwable) -> Unit = {},
-        onPreviewFrame: (Bitmap) -> Unit = {}
+        onFatalError: (Throwable) -> Unit = {}
     ) {
         val providerFuture = ProcessCameraProvider.getInstance(context)
         providerFuture.addListener({
@@ -69,40 +61,27 @@ class CameraController(
                 val provider = providerFuture.get()
                 cameraProvider = provider
 
-                val previewBuilder = Preview.Builder()
+                val encoderPreviewBuilder = Preview.Builder()
                     .setTargetResolution(Size(width, height))
 
-                Camera2Interop.Extender(previewBuilder)
+                Camera2Interop.Extender(encoderPreviewBuilder)
                     .setCaptureRequestOption(
                         android.hardware.camera2.CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
                         Range(fps, fps)
                     )
 
-                val preview = previewBuilder.build()
-                preview.setSurfaceProvider(ContextCompat.getMainExecutor(context)) { request ->
+                val encoderPreview = encoderPreviewBuilder.build()
+                encoderPreview.setSurfaceProvider(ContextCompat.getMainExecutor(context)) { request ->
                     request.provideSurface(encoderSurface, ContextCompat.getMainExecutor(context)) { }
                 }
 
-                val analysis = ImageAnalysis.Builder()
-                    .setTargetResolution(PREVIEW_ANALYSIS_SIZE)
-                    .setTargetRotation(Surface.ROTATION_0)
-                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+                val displayPreview = Preview.Builder()
+                    .setTargetResolution(PREVIEW_DISPLAY_SIZE)
                     .build()
-
-                analysis.setAnalyzer(analysisExecutor) { imageProxy ->
-                    try {
-                        val image = imageProxy.image
-                        if (image != null) onPreviewFrame(yuvToPreviewBitmap(image))
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to render preview frame", e)
-                    } finally {
-                        imageProxy.close()
-                    }
-                }
+                displayPreview.setSurfaceProvider(previewView.surfaceProvider)
 
                 provider.unbindAll()
-                provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, encoderPreview, displayPreview)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to start camera", e)
                 onFatalError(e)
@@ -113,61 +92,5 @@ class CameraController(
     fun stop() {
         cameraProvider?.unbindAll()
         cameraProvider = null
-        previewBitmap = null
-        previewPixels = null
-    }
-
-    /**
-     * Cheap, heavily downsampled YUV_420_888 -> ARGB_8888 conversion, just for a
-     * viewfinder-quality preview. Uses integer fixed-point YUV->RGB coefficients (Q8,
-     * i.e. scaled by 256) instead of float math, and reuses its output buffers across
-     * calls -- this runs once per analyzed frame on a background thread, so keeping its
-     * per-frame cost as low as possible is what lets the preview track real time instead
-     * of visibly lagging behind it.
-     */
-    private fun yuvToPreviewBitmap(image: Image): Bitmap {
-        val outW = image.width / PREVIEW_SAMPLE_STEP
-        val outH = image.height / PREVIEW_SAMPLE_STEP
-
-        var pixels = previewPixels
-        if (pixels == null || pixels.size != outW * outH) {
-            pixels = IntArray(outW * outH)
-            previewPixels = pixels
-        }
-
-        val yPlane = image.planes[0]
-        val uPlane = image.planes[1]
-        val vPlane = image.planes[2]
-        val yBuffer = yPlane.buffer
-        val uBuffer = uPlane.buffer
-        val vBuffer = vPlane.buffer
-
-        for (oy in 0 until outH) {
-            val srcY = min(oy * PREVIEW_SAMPLE_STEP, image.height - 1)
-            val chromaY = srcY / 2
-            val rowOffset = oy * outW
-            for (ox in 0 until outW) {
-                val srcX = min(ox * PREVIEW_SAMPLE_STEP, image.width - 1)
-                val chromaX = srcX / 2
-
-                val yVal = yBuffer.get(srcY * yPlane.rowStride + srcX * yPlane.pixelStride).toInt() and 0xFF
-                val uVal = (uBuffer.get(chromaY * uPlane.rowStride + chromaX * uPlane.pixelStride).toInt() and 0xFF) - 128
-                val vVal = (vBuffer.get(chromaY * vPlane.rowStride + chromaX * vPlane.pixelStride).toInt() and 0xFF) - 128
-
-                val r = (yVal + ((359 * vVal) shr 8)).coerceIn(0, 255)
-                val g = (yVal - ((88 * uVal + 183 * vVal) shr 8)).coerceIn(0, 255)
-                val b = (yVal + ((454 * uVal) shr 8)).coerceIn(0, 255)
-
-                pixels[rowOffset + ox] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
-            }
-        }
-
-        var bitmap = previewBitmap
-        if (bitmap == null || bitmap.width != outW || bitmap.height != outH || bitmap.isRecycled) {
-            bitmap = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
-            previewBitmap = bitmap
-        }
-        bitmap.setPixels(pixels, 0, outW, 0, 0, outW, outH)
-        return bitmap
     }
 }

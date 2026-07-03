@@ -167,9 +167,9 @@ class MainActivity : AppCompatActivity() {
         val camera = CameraController(this, this)
         cameraController = camera
         camera.start(
-            encoderSurface, width, height, fps,
+            binding.previewView, encoderSurface, width, height, fps,
             onFatalError = { e -> handleFatalError("Falha ao iniciar a câmera", e) }
-        ) { bitmap -> runOnUiThread { binding.previewImage.setImageBitmap(bitmap) } }
+        )
 
         thermalMonitor = ThermalMonitor(this).apply { start() }
 
