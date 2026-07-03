@@ -47,6 +47,12 @@ void push_frame_to_obs(obs_source_t *source, const AVFrame *frame, uint64_t pts_
 
 void start_receiving(ucsp_source_data *ctx)
 {
+	// The sender's FrameId/SequenceNumber counters restart from zero on every new
+	// streaming session (see UcspPacketizer on the Android side), so any state left over
+	// from a previous session would make every packet from a fresh session look like a
+	// stale straggler and get silently dropped forever. Always start from a clean slate.
+	ctx->reassembler.reset();
+
 	bool started = ctx->udp_receiver.start(ctx->listen_port,
 						[ctx](const ucsp::Header &header, const uint8_t *payload, size_t payload_len) {
 							ctx->reassembler.on_packet(header, payload, payload_len);
@@ -128,10 +134,24 @@ void ucsp_source_defaults(obs_data_t *settings)
 	obs_data_set_default_int(settings, "listen_port", UCSP_DEFAULT_PORT);
 }
 
+// Manual fallback for whatever isn't covered by the automatic recovery paths (keyframe
+// auto-request on decode failure, reassembler reset on every start_receiving) -- fully
+// tears down and rebinds the UDP socket and reassembler state without needing to remove
+// the source or restart OBS.
+bool ucsp_source_reset_clicked(obs_properties_t *, obs_property_t *, void *data)
+{
+	auto *ctx = static_cast<ucsp_source_data *>(data);
+	obs_log(LOG_INFO, "ucsp_source: manual reset requested");
+	stop_receiving(ctx);
+	start_receiving(ctx);
+	return false;
+}
+
 obs_properties_t *ucsp_source_properties(void *)
 {
 	obs_properties_t *props = obs_properties_create();
 	obs_properties_add_int(props, "listen_port", obs_module_text("ListenPort"), 1024, 65535, 1);
+	obs_properties_add_button(props, "reset_connection", obs_module_text("ResetConnection"), ucsp_source_reset_clicked);
 	return props;
 }
 

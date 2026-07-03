@@ -5,14 +5,12 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
-import android.view.SurfaceHolder
 import android.widget.AdapterView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.ucsp.sender.adaptive.AdaptiveController
 import com.ucsp.sender.capture.CameraController
-import com.ucsp.sender.capture.CameraRenderer
 import com.ucsp.sender.databinding.ActivityMainBinding
 import com.ucsp.sender.encode.H264Encoder
 import com.ucsp.sender.network.BackchannelReport
@@ -52,7 +50,6 @@ class MainActivity : AppCompatActivity() {
     private val adaptiveController = AdaptiveController()
 
     private var cameraController: CameraController? = null
-    private var cameraRenderer: CameraRenderer? = null
     private var encoder: H264Encoder? = null
     private var sender: UcspSender? = null
     private var thermalMonitor: ThermalMonitor? = null
@@ -74,18 +71,6 @@ class MainActivity : AppCompatActivity() {
         wifiSignalMonitor = WifiSignalMonitor(this) { level, maxLevel ->
             runOnUiThread { binding.textSignal.text = getString(R.string.signal_format, level, maxLevel) }
         }
-
-        binding.previewSurface.holder.addCallback(object : SurfaceHolder.Callback {
-            override fun surfaceCreated(holder: SurfaceHolder) = Unit
-
-            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-                cameraRenderer?.setPreviewSurface(holder.surface, width, height)
-            }
-
-            override fun surfaceDestroyed(holder: SurfaceHolder) {
-                cameraRenderer?.setPreviewSurface(null, 0, 0)
-            }
-        })
 
         if (savedInstanceState?.getBoolean(STATE_IS_STREAMING) == true) {
             // Explicitly re-apply the fields we need instead of relying on the standard
@@ -179,22 +164,12 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val renderer = CameraRenderer()
-        cameraRenderer = renderer
-        val cameraFacingSurface = renderer.start(encoderSurface, width, height)
-        val previewHolder = binding.previewSurface.holder
-        val previewFrame = previewHolder.surfaceFrame
-        if (previewHolder.surface?.isValid == true && previewFrame.width() > 0 && previewFrame.height() > 0) {
-            renderer.setPreviewSurface(previewHolder.surface, previewFrame.width(), previewFrame.height())
-        }
-
         val camera = CameraController(this, this)
         cameraController = camera
         camera.start(
-            cameraFacingSurface, width, height, fps,
-            onFatalError = { e -> handleFatalError("Falha ao iniciar a câmera", e) },
-            onRotationDegreesChanged = { degrees -> renderer.setRotationDegrees(degrees) }
-        )
+            encoderSurface, width, height, fps,
+            onFatalError = { e -> handleFatalError("Falha ao iniciar a câmera", e) }
+        ) { bitmap -> runOnUiThread { binding.previewImage.setImageBitmap(bitmap) } }
 
         thermalMonitor = ThermalMonitor(this).apply { start() }
 
@@ -214,8 +189,6 @@ class MainActivity : AppCompatActivity() {
     private fun stopStreaming() {
         cameraController?.stop()
         cameraController = null
-        cameraRenderer?.release()
-        cameraRenderer = null
         encoder?.release()
         encoder = null
         sender?.let { s -> networkExecutor.execute { s.stop() } }
@@ -244,7 +217,6 @@ class MainActivity : AppCompatActivity() {
         if (isStreaming) {
             Log.i(TAG, "Activity destroyed while streaming (e.g. rotation) -- pipeline torn down, will restart in new instance")
             cameraController?.stop()
-            cameraRenderer?.release()
             encoder?.release()
             sender?.let { s -> networkExecutor.execute { s.stop() } }
             thermalMonitor?.stop()

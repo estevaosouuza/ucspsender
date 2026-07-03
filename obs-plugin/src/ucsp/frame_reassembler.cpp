@@ -13,6 +13,27 @@ using namespace std::chrono;
 
 FrameReassembler::FrameReassembler() {}
 
+void FrameReassembler::reset()
+{
+	for (auto &slot : ring_)
+		slot = FrameBuffer{};
+
+	has_last_frame_arrival_ = false;
+	last_frame_pts_us_ = 0;
+	completed_frame_count_ = 0;
+
+	std::lock_guard<std::mutex> lock(stats_mutex_);
+	has_last_frame_id_ = false;
+	last_frame_id_received_ = 0;
+	jitter_ms_ewma_ = 0.0;
+	window_packets_received_ = 0;
+	window_has_seq_ = false;
+	window_seq_min_ = 0;
+	window_seq_max_ = 0;
+	window_processing_accum_ms_ = 0.0;
+	window_processing_count_ = 0;
+}
+
 void FrameReassembler::on_packet(const Header &header, const uint8_t *payload, size_t payload_len)
 {
 	if (header.packet_type != PACKET_VIDEO_DATA && header.packet_type != PACKET_FEC_PARITY)

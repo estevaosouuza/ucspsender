@@ -33,6 +33,14 @@ public:
 
 	void on_packet(const Header &header, const uint8_t *payload, size_t payload_len);
 
+	// Clears all in-flight frame state and stats. Must be called whenever the UDP
+	// receiver (re)starts: the sender's FrameId/SequenceNumber counters restart from
+	// zero on every new streaming session (e.g. the phone app was stopped and started
+	// again), and without this, every packet from the new session looks like a stale
+	// straggler behind whatever high FrameId the ring last saw -- silently dropped
+	// forever, which is exactly what looks like "OBS stopped receiving, needs a restart".
+	void reset();
+
 	// Thread-safe. Returns the report for the window since the last call and resets the
 	// window-scoped counters (packets/processing time); continuous stats (last frame id,
 	// jitter EWMA) are left untouched.
