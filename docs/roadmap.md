@@ -1,22 +1,35 @@
 # Roadmap de fases
 
-Status: **Fase 0 em andamento**.
+Status: **Fase 1 em andamento** (implementação completa, pendente build final do FFmpeg
+e teste ponta a ponta).
 
 ## Fase 0 — Setup de ambiente e scaffold
 
 - [x] git init + estrutura de pastas + `.gitignore`
 - [x] `docs/protocol/ucsp-spec.md`, `docs/architecture.md`
-- [ ] Instalar Visual Studio Build Tools (workload C++) + CMake
-- [ ] Configurar vcpkg + FFmpeg dev libs (avcodec/avformat/avutil/swscale)
-- [ ] Clonar/adaptar `obsproject/obs-plugintemplate` em `obs-plugin/`, confirmar que o
-      plugin de exemplo compila e carrega na instalação local do OBS Studio
-- [ ] Scaffold do projeto Android (Android Studio, Kotlin, minSdk 24, CameraX), confirmar
-      Hello World rodando no emulador
+- [x] Instalar Visual Studio Build Tools (workload C++) + CMake
+      (CMake instalado via winget; MSVC 14.44 via VS Build Tools 2022 — exige elevação
+      UAC interativa, que precisou ser feita manualmente)
+- [x] Configurar vcpkg + FFmpeg dev libs (avcodec/avformat/avdevice/avfilter/swscale) —
+      `C:\Users\Lenovo\vcpkg`, variável de ambiente `VCPKG_ROOT` (user-level). Linkado
+      diretamente por caminho no `CMakeLists.txt` (não via `CMAKE_TOOLCHAIN_FILE` global,
+      que conflita com o mecanismo próprio do `obs-plugintemplate` de localizar `libobs`)
+- [x] Clonar/adaptar `obsproject/obs-plugintemplate` em `obs-plugin/`; `cmake --preset
+      windows-x64` configura com sucesso (baixa/compila obs-studio 31.1.1 + obs-deps +
+      Qt6 automaticamente). Nota: `CMakePresets.json` teve o pin de SDK do Windows
+      (`10.0.22621`) removido para usar o SDK instalado localmente (`10.0.26100`)
+- [x] Scaffold do projeto Android (Gradle/Kotlin via wrapper portátil, sem Android
+      Studio GUI), `assembleDebug` funcionando. Teste em emulador fica para quando
+      houver um device físico (câmera não é útil em emulador para este caso de uso)
 
 ## Fase 1 — MVP: pipeline ponta a ponta funcional
 
 **Objetivo**: vídeo da câmera do celular aparecendo como fonte no OBS via LAN, mesmo que
 a latência ainda não bata os 80–300ms alvo (isso é trabalho da Fase 2+).
+
+**Status**: código completo dos dois lados (`android-app` builda com `assembleDebug`;
+`obs-plugin` compila — só falta o build do FFmpeg via vcpkg terminar para linkar e testar
+ponta a ponta pela primeira vez).
 
 Android:
 - `capture/CameraController.kt` — CameraX com `Surface` do `MediaCodec.createInputSurface()`

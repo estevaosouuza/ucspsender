@@ -34,6 +34,45 @@ if(ENABLE_QT)
   )
 endif()
 
-target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.cpp src/ucsp-source.cpp src/ucsp-source.h)
+target_sources(
+  ${CMAKE_PROJECT_NAME}
+  PRIVATE
+    src/plugin-main.cpp
+    src/ucsp-source.cpp
+    src/ucsp-source.h
+    src/ucsp/ucsp_protocol.h
+    src/ucsp/ucsp_protocol.cpp
+    src/ucsp/udp_receiver.h
+    src/ucsp/udp_receiver.cpp
+    src/ucsp/fec_decoder.h
+    src/ucsp/fec_decoder.cpp
+    src/ucsp/frame_reassembler.h
+    src/ucsp/frame_reassembler.cpp
+    src/ucsp/h264_decoder.h
+    src/ucsp/h264_decoder.cpp
+    src/ucsp/backchannel_sender.h
+    src/ucsp/backchannel_sender.cpp
+)
+
+if(OS_WINDOWS)
+  # FFmpeg (avcodec/avformat/avutil/swscale) via vcpkg classic mode -- linked directly by
+  # path rather than through vcpkg's CMAKE_TOOLCHAIN_FILE, since that toolchain's global
+  # find_package() override conflicts with this template's own libobs discovery above.
+  if(NOT DEFINED ENV{VCPKG_ROOT})
+    message(FATAL_ERROR "VCPKG_ROOT environment variable is not set (see docs/roadmap.md Phase 0)")
+  endif()
+  set(UCSP_VCPKG_DIR "$ENV{VCPKG_ROOT}/installed/x64-windows")
+
+  target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE "${UCSP_VCPKG_DIR}/include")
+  target_link_libraries(
+    ${CMAKE_PROJECT_NAME}
+    PRIVATE
+      "${UCSP_VCPKG_DIR}/lib/avcodec.lib"
+      "${UCSP_VCPKG_DIR}/lib/avformat.lib"
+      "${UCSP_VCPKG_DIR}/lib/avutil.lib"
+      "${UCSP_VCPKG_DIR}/lib/swscale.lib"
+      ws2_32
+  )
+endif()
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})

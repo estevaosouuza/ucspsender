@@ -12,6 +12,9 @@ android-app/.cxx/
 
 # --- CMake / C++ / OBS plugin ---
 obs-plugin/build/
+obs-plugin/build_*/
+obs-plugin/.deps/
+obs-plugin/cmake/.CMakeBuildNumber
 obs-plugin/**/build/
 obs-plugin/CMakeCache.txt
 obs-plugin/**/CMakeFiles/
