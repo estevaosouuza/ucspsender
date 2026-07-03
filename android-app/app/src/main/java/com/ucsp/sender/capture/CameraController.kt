@@ -48,10 +48,11 @@ class CameraController(
     private var cameraProvider: ProcessCameraProvider? = null
     private val analysisExecutor = Executors.newSingleThreadExecutor()
 
-    // Reused across frames instead of allocating a new Bitmap every analyzed frame --
-    // that per-frame allocation (plus the GC churn it caused) was what made the on-screen
-    // preview look choppy/stepped rather than smooth video.
+    // Reused across frames instead of allocating a new Bitmap/IntArray on every analyzed
+    // frame -- that per-frame allocation (plus the GC churn it caused) was most of why
+    // the on-screen preview lagged behind real time instead of tracking it smoothly.
     private var previewBitmap: Bitmap? = null
+    private var previewPixels: IntArray? = null
 
     @OptIn(ExperimentalCamera2Interop::class)
     fun start(
@@ -113,13 +114,26 @@ class CameraController(
         cameraProvider?.unbindAll()
         cameraProvider = null
         previewBitmap = null
+        previewPixels = null
     }
 
-    /** Cheap, heavily downsampled YUV_420_888 -> ARGB_8888 conversion, just for a viewfinder-quality preview. */
+    /**
+     * Cheap, heavily downsampled YUV_420_888 -> ARGB_8888 conversion, just for a
+     * viewfinder-quality preview. Uses integer fixed-point YUV->RGB coefficients (Q8,
+     * i.e. scaled by 256) instead of float math, and reuses its output buffers across
+     * calls -- this runs once per analyzed frame on a background thread, so keeping its
+     * per-frame cost as low as possible is what lets the preview track real time instead
+     * of visibly lagging behind it.
+     */
     private fun yuvToPreviewBitmap(image: Image): Bitmap {
         val outW = image.width / PREVIEW_SAMPLE_STEP
         val outH = image.height / PREVIEW_SAMPLE_STEP
-        val pixels = IntArray(outW * outH)
+
+        var pixels = previewPixels
+        if (pixels == null || pixels.size != outW * outH) {
+            pixels = IntArray(outW * outH)
+            previewPixels = pixels
+        }
 
         val yPlane = image.planes[0]
         val uPlane = image.planes[1]
@@ -131,6 +145,7 @@ class CameraController(
         for (oy in 0 until outH) {
             val srcY = min(oy * PREVIEW_SAMPLE_STEP, image.height - 1)
             val chromaY = srcY / 2
+            val rowOffset = oy * outW
             for (ox in 0 until outW) {
                 val srcX = min(ox * PREVIEW_SAMPLE_STEP, image.width - 1)
                 val chromaX = srcX / 2
@@ -139,11 +154,11 @@ class CameraController(
                 val uVal = (uBuffer.get(chromaY * uPlane.rowStride + chromaX * uPlane.pixelStride).toInt() and 0xFF) - 128
                 val vVal = (vBuffer.get(chromaY * vPlane.rowStride + chromaX * vPlane.pixelStride).toInt() and 0xFF) - 128
 
-                val r = (yVal + 1.402f * vVal).toInt().coerceIn(0, 255)
-                val g = (yVal - 0.344136f * uVal - 0.714136f * vVal).toInt().coerceIn(0, 255)
-                val b = (yVal + 1.772f * uVal).toInt().coerceIn(0, 255)
+                val r = (yVal + ((359 * vVal) shr 8)).coerceIn(0, 255)
+                val g = (yVal - ((88 * uVal + 183 * vVal) shr 8)).coerceIn(0, 255)
+                val b = (yVal + ((454 * uVal) shr 8)).coerceIn(0, 255)
 
-                pixels[oy * outW + ox] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                pixels[rowOffset + ox] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
             }
         }
 
