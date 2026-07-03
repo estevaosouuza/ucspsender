@@ -183,8 +183,9 @@ class MainActivity : AppCompatActivity() {
         cameraRenderer = renderer
         val cameraFacingSurface = renderer.start(encoderSurface, width, height)
         val previewHolder = binding.previewSurface.holder
-        if (previewHolder.surface?.isValid == true) {
-            renderer.setPreviewSurface(previewHolder.surface, binding.previewSurface.width, binding.previewSurface.height)
+        val previewFrame = previewHolder.surfaceFrame
+        if (previewHolder.surface?.isValid == true && previewFrame.width() > 0 && previewFrame.height() > 0) {
+            renderer.setPreviewSurface(previewHolder.surface, previewFrame.width(), previewFrame.height())
         }
 
         val camera = CameraController(this, this)

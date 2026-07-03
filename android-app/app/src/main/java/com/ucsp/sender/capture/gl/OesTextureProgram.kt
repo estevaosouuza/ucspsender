@@ -18,9 +18,10 @@ class OesTextureProgram {
             attribute vec4 aPosition;
             attribute vec4 aTextureCoord;
             uniform mat4 uSTMatrix;
+            uniform vec2 uPositionScale;
             varying vec2 vTextureCoord;
             void main() {
-                gl_Position = aPosition;
+                gl_Position = vec4(aPosition.xy * uPositionScale, aPosition.z, aPosition.w);
                 vTextureCoord = (uSTMatrix * aTextureCoord).xy;
             }
         """
@@ -79,6 +80,7 @@ class OesTextureProgram {
     private var textureCoordHandle = 0
     private var stMatrixHandle = 0
     private var textureHandle = 0
+    private var positionScaleHandle = 0
 
     private val quadBuffer = directFloatBuffer(QUAD_COORDS)
     private val texCoordBuffer = directFloatBuffer(TEX_COORDS)
@@ -106,6 +108,7 @@ class OesTextureProgram {
         textureCoordHandle = GLES20.glGetAttribLocation(programHandle, "aTextureCoord")
         stMatrixHandle = GLES20.glGetUniformLocation(programHandle, "uSTMatrix")
         textureHandle = GLES20.glGetUniformLocation(programHandle, "sTexture")
+        positionScaleHandle = GLES20.glGetUniformLocation(programHandle, "uPositionScale")
 
         val textures = IntArray(1)
         GLES20.glGenTextures(1, textures, 0)
@@ -117,7 +120,15 @@ class OesTextureProgram {
         GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
     }
 
-    fun draw(stMatrix: FloatArray, viewportWidth: Int, viewportHeight: Int) {
+    /**
+     * Draws the camera texture into [viewportWidth]x[viewportHeight] using center-crop
+     * scaling (fills the destination completely, cropping overflow) computed by
+     * comparing the camera's captured aspect ratio ([sourceWidth]x[sourceHeight]) against
+     * the destination's -- without this, a destination surface with a different aspect
+     * ratio than the camera capture (e.g. a phone screen vs. a 16:9 capture) stretches
+     * the image.
+     */
+    fun draw(stMatrix: FloatArray, sourceWidth: Int, sourceHeight: Int, viewportWidth: Int, viewportHeight: Int) {
         GLES20.glViewport(0, 0, viewportWidth, viewportHeight)
         GLES20.glClearColor(0f, 0f, 0f, 1f)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
@@ -137,6 +148,17 @@ class OesTextureProgram {
         GLES20.glEnableVertexAttribArray(textureCoordHandle)
 
         GLES20.glUniformMatrix4fv(stMatrixHandle, 1, false, stMatrix, 0)
+
+        val sourceAspect = sourceWidth.toFloat() / sourceHeight.toFloat()
+        val destAspect = viewportWidth.toFloat() / viewportHeight.toFloat()
+        var scaleX = 1f
+        var scaleY = 1f
+        if (sourceAspect > destAspect) {
+            scaleX = sourceAspect / destAspect
+        } else {
+            scaleY = destAspect / sourceAspect
+        }
+        GLES20.glUniform2f(positionScaleHandle, scaleX, scaleY)
 
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
 

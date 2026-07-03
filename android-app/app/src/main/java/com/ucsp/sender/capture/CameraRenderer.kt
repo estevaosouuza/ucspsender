@@ -96,6 +96,7 @@ class CameraRenderer {
             if (surface != null) {
                 try {
                     previewEglSurface = eglCore.createWindowSurface(surface)
+                    Log.i(TAG, "Preview surface attached (${width}x$height)")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to create preview EGL surface", e)
                 }
@@ -111,13 +112,13 @@ class CameraRenderer {
             cameraSurfaceTexture.getTransformMatrix(transformMatrix)
 
             eglCore.makeCurrent(encoderEglSurface!!)
-            program.draw(transformMatrix, encoderWidth, encoderHeight)
+            program.draw(transformMatrix, encoderWidth, encoderHeight, encoderWidth, encoderHeight)
             eglCore.swapBuffers(encoderEglSurface!!)
 
             val previewEgl = previewEglSurface
-            if (previewEgl != null) {
+            if (previewEgl != null && previewWidth > 0 && previewHeight > 0) {
                 eglCore.makeCurrent(previewEgl)
-                program.draw(transformMatrix, previewWidth, previewHeight)
+                program.draw(transformMatrix, encoderWidth, encoderHeight, previewWidth, previewHeight)
                 eglCore.swapBuffers(previewEgl)
             }
         } catch (e: Exception) {
