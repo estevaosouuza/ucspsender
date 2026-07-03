@@ -192,7 +192,8 @@ class MainActivity : AppCompatActivity() {
         cameraController = camera
         camera.start(
             cameraFacingSurface, width, height, fps,
-            onFatalError = { e -> handleFatalError("Falha ao iniciar a câmera", e) }
+            onFatalError = { e -> handleFatalError("Falha ao iniciar a câmera", e) },
+            onRotationDegreesChanged = { degrees -> renderer.setRotationDegrees(degrees) }
         )
 
         thermalMonitor = ThermalMonitor(this).apply { start() }

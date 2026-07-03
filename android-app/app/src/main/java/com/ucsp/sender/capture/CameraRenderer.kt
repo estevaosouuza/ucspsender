@@ -47,6 +47,18 @@ class CameraRenderer {
     @Volatile
     private var released = false
 
+    // Set from CameraController's CameraX TransformationInfo callback. SurfaceTexture's
+    // transform matrix already samples correctly for whatever rotation CameraX computed
+    // (sensor mounting vs. requested targetRotation) -- this value is only used to know
+    // whether that rotation is an odd multiple of 90 degrees, in which case the *effective*
+    // displayed aspect ratio is width/height swapped relative to the raw buffer.
+    @Volatile
+    private var rotationDegrees = 0
+
+    fun setRotationDegrees(degrees: Int) {
+        rotationDegrees = degrees
+    }
+
     /**
      * Must be called (and its result awaited) before binding CameraX's Preview use case,
      * since Preview needs a real Surface to render into immediately.
@@ -111,14 +123,18 @@ class CameraRenderer {
             cameraSurfaceTexture.updateTexImage()
             cameraSurfaceTexture.getTransformMatrix(transformMatrix)
 
+            val swapped = rotationDegrees % 180 != 0
+            val effectiveSourceWidth = if (swapped) encoderHeight else encoderWidth
+            val effectiveSourceHeight = if (swapped) encoderWidth else encoderHeight
+
             eglCore.makeCurrent(encoderEglSurface!!)
-            program.draw(transformMatrix, encoderWidth, encoderHeight, encoderWidth, encoderHeight)
+            program.draw(transformMatrix, effectiveSourceWidth, effectiveSourceHeight, encoderWidth, encoderHeight)
             eglCore.swapBuffers(encoderEglSurface!!)
 
             val previewEgl = previewEglSurface
             if (previewEgl != null && previewWidth > 0 && previewHeight > 0) {
                 eglCore.makeCurrent(previewEgl)
-                program.draw(transformMatrix, encoderWidth, encoderHeight, previewWidth, previewHeight)
+                program.draw(transformMatrix, effectiveSourceWidth, effectiveSourceHeight, previewWidth, previewHeight)
                 eglCore.swapBuffers(previewEgl)
             }
         } catch (e: Exception) {

@@ -36,7 +36,8 @@ class CameraController(
         width: Int,
         height: Int,
         fps: Int,
-        onFatalError: (Throwable) -> Unit = {}
+        onFatalError: (Throwable) -> Unit = {},
+        onRotationDegreesChanged: (Int) -> Unit = {}
     ) {
         val providerFuture = ProcessCameraProvider.getInstance(context)
         providerFuture.addListener({
@@ -56,6 +57,17 @@ class CameraController(
 
                 val preview = previewBuilder.build()
                 preview.setSurfaceProvider(ContextCompat.getMainExecutor(context)) { request ->
+                    // CameraX bakes the rotation it computes (sensor mounting vs. our
+                    // requested targetRotation) into SurfaceTexture's transform matrix, so
+                    // sampling is already correct -- but that rotation does NOT change the
+                    // buffer's declared width/height, so whenever it's an odd multiple of
+                    // 90 degrees the *effective displayed* aspect ratio is width/height
+                    // swapped relative to the raw buffer. Reporting this up is what lets
+                    // the renderer's center-crop math use the right aspect ratio instead
+                    // of stretching the image.
+                    request.setTransformationInfoListener(ContextCompat.getMainExecutor(context)) { info ->
+                        onRotationDegreesChanged(info.rotationDegrees)
+                    }
                     request.provideSurface(cameraFacingSurface, ContextCompat.getMainExecutor(context)) { }
                 }
 

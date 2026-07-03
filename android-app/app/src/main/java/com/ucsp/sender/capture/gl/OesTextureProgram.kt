@@ -8,9 +8,10 @@ import java.nio.FloatBuffer
 
 /**
  * Compiles a minimal pass-through shader that samples a GL_TEXTURE_EXTERNAL_OES texture
- * (what SurfaceTexture produces from camera frames) and draws it as a full-screen quad,
- * applying the texture transform matrix SurfaceTexture provides (handles whatever
- * flip/crop the camera HAL needs).
+ * (what SurfaceTexture produces from camera frames), applies the per-frame transform
+ * matrix SurfaceTexture provides (handles whatever sampling adjustment the camera HAL
+ * needs), and draws it center-cropped to fill the destination viewport without
+ * stretching (see [draw]).
  */
 class OesTextureProgram {
     companion object {
