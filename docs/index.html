@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>UCSP — Ultra-low-latency Camera Streaming Protocol</title>
+<meta name="description" content="Transforme qualquer celular Android numa câmera de transmissão profissional para o OBS Studio, via um protocolo UDP próprio feito para redes Wi-Fi difíceis." />
+<style>
+  :root {
+    --bg: #0b0d12;
+    --bg-elev: #12151c;
+    --border: #23262f;
+    --text: #e8eaed;
+    --text-dim: #9aa1ac;
+    --accent: #5b8cff;
+    --accent-2: #7fd8a6;
+    --danger: #ff6b6b;
+    --radius: 14px;
+    --maxw: 980px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+  }
+  body { padding: 0 20px; }
+  main { max-width: var(--maxw); margin: 0 auto; padding-bottom: 80px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  code { padding: 2px 6px; font-size: 0.9em; }
+  pre { padding: 16px; overflow-x: auto; }
+  pre code { border: none; padding: 0; background: none; }
+
+  header.hero {
+    padding: 72px 0 48px;
+    text-align: center;
+  }
+  .badge {
+    display: inline-block;
+    background: rgba(91, 140, 255, 0.12);
+    color: var(--accent);
+    border: 1px solid rgba(91, 140, 255, 0.35);
+    border-radius: 999px;
+    padding: 5px 14px;
+    font-size: 0.85rem;
+    margin-bottom: 20px;
+  }
+  h1 {
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    margin: 0 0 16px;
+    letter-spacing: -0.02em;
+  }
+  .tagline {
+    font-size: 1.15rem;
+    color: var(--text-dim);
+    max-width: 640px;
+    margin: 0 auto 36px;
+  }
+  .cta-row {
+    display: flex;
+    gap: 14px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 13px 24px;
+    border-radius: 10px;
+    font-weight: 600;
+    font-size: 0.98rem;
+    text-decoration: none !important;
+    border: 1px solid transparent;
+  }
+  .btn-primary { background: var(--accent); color: #04070f; }
+  .btn-primary:hover { filter: brightness(1.08); }
+  .btn-secondary { background: var(--bg-elev); color: var(--text); border-color: var(--border); }
+  .btn-secondary:hover { border-color: var(--accent); }
+
+  section { padding: 44px 0; border-top: 1px solid var(--border); }
+  section h2 {
+    font-size: 1.5rem;
+    margin: 0 0 8px;
+  }
+  section .lede { color: var(--text-dim); margin-bottom: 28px; max-width: 680px; }
+
+  .quote {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent-2);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin: 24px 0;
+    color: var(--text);
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  .card h3 { margin: 0 0 8px; font-size: 1.02rem; }
+  .card p { margin: 0; color: var(--text-dim); font-size: 0.94rem; }
+
+  .diagram {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    overflow-x: auto;
+  }
+  .diagram pre { border: none; background: none; margin: 0; font-size: 0.82rem; }
+
+  table.downloads {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  table.downloads th, table.downloads td {
+    padding: 14px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  table.downloads tr:last-child td { border-bottom: none; }
+  table.downloads th { color: var(--text-dim); font-weight: 600; font-size: 0.85rem; }
+
+  ol.steps { padding-left: 1.2em; color: var(--text); }
+  ol.steps li { margin-bottom: 10px; }
+
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 32px 0 0;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<main>
+
+  <header class="hero">
+    <span class="badge">Fase 1 · pipeline estável, testado em rede real</span>
+    <h1>UCSP</h1>
+    <p class="tagline">
+      Transforme qualquer celular Android numa câmera de transmissão profissional
+      para o OBS Studio — sem fios, sem NDI, sem travamentos, mesmo em Wi-Fi ruim.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/estevaosouuza/ucspsender/releases/latest">⬇ Baixar (Plugin OBS + App Android)</a>
+      <a class="btn btn-secondary" href="https://github.com/estevaosouuza/ucspsender">Ver código-fonte</a>
+    </div>
+  </header>
+
+  <section>
+    <h2>O problema que o UCSP resolve</h2>
+    <p class="lede">
+      Ferramentas como NDI foram feitas para redes cabeadas e bem dimensionadas. Num
+      ambiente real — uma igreja com dezenas de celulares na mesma Wi-Fi, um evento com
+      roteador saturado — elas tentam manter <em>qualidade</em> a qualquer custo, e o
+      resultado é a imagem congelando por segundos inteiros.
+    </p>
+    <div class="quote">
+      <strong>O UCSP inverte essa prioridade:</strong> perder qualidade antes de perder
+      fluidez. A imagem pode ficar temporariamente pior — mas o vídeo nunca para.
+    </div>
+    <p class="lede">
+      Isso é implementado de propósito no protocolo, não é um efeito colateral: pacotes
+      UDP puros (sem handshake, sem retransmissão), correção de erro (FEC) embutida,
+      remontagem de quadros que descarta rápido em vez de esperar, e um canal de retorno
+      que pede um novo quadro-chave automaticamente quando algo se perde — tudo para bater
+      uma latência alvo de <strong>80–300&nbsp;ms</strong>, mesmo em rede difícil.
+    </p>
+  </section>
+
+  <section>
+    <h2>Downloads</h2>
+    <p class="lede">Precisa dos dois lados: o plugin no PC onde roda o OBS, e o app no celular que vai filmar.</p>
+    <table class="downloads">
+      <tr><th>Componente</th><th>O que é</th><th></th></tr>
+      <tr>
+        <td>Plugin para OBS Studio</td>
+        <td>Instalador Windows (.exe) — adiciona a fonte "UCSP Camera Source"</td>
+        <td><a href="https://github.com/estevaosouuza/ucspsender/releases/latest">Baixar →</a></td>
+      </tr>
+      <tr>
+        <td>App Android (sender)</td>
+        <td>APK — instale no celular que vai servir de câmera</td>
+        <td><a href="https://github.com/estevaosouuza/ucspsender/releases/latest">Baixar →</a></td>
+      </tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>Como funciona</h2>
+    <div class="diagram">
+<pre><code>┌─────────────────────────┐                          ┌──────────────────────────────┐
+│   App Android (sender)  │                          │  Plugin OBS (ucsp_source)    │
+│                          │                          │                               │
+│  Câmera ──▶ MediaCodec   │                          │  UDP Receiver                 │
+│  (H.264 Baseline,        │  UDP puro, pacotes de    │    │                          │
+│   sem B-frame, GOP curto)│  ~1,4 KB, FEC (XOR)       │    ▼                          │
+│        │                 │ ────────────────────────▶│  Reassembly por FrameId       │
+│        ▼                 │                          │  (descarta rápido, nunca       │
+│  Packetizer UCSP          │                          │   trava esperando)            │
+│        │                 │  ◀──── backchannel ────  │    │                          │
+│        ▼                 │  (stats, pedido de        │    ▼                          │
+│  UDP Sender               │   keyframe sob demanda)   │  Decode H.264 (FFmpeg)        │
+└─────────────────────────┘                          │    │                          │
+                                                        │    ▼                          │
+                                                        │  Fonte de vídeo no OBS         │
+                                                        └──────────────────────────────┘</code></pre>
+    </div>
+  </section>
+
+  <section>
+    <h2>Recursos</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>Zero freeze</h3>
+        <p>Frame incompleto é descartado na hora, nunca trava a imagem esperando um pacote atrasado.</p>
+      </div>
+      <div class="card">
+        <h3>Correção de erro embutida</h3>
+        <p>Paridade XOR por grupo de pacotes recupera 1 perda sem precisar retransmitir — retransmissão mataria a latência.</p>
+      </div>
+      <div class="card">
+        <h3>Autorrecuperação de keyframe</h3>
+        <p>Se um quadro-chave se perde e a decodificação falha, o plugin pede um novo automaticamente pelo canal de retorno.</p>
+      </div>
+      <div class="card">
+        <h3>Reset manual de conexão</h3>
+        <p>Botão nas propriedades da fonte reconecta sem precisar reiniciar o OBS.</p>
+      </div>
+      <div class="card">
+        <h3>Resolução e FPS ajustáveis</h3>
+        <p>480p/720p/1080p e 15/24/30fps direto no app, ordenados do menor (menor latência) ao maior.</p>
+      </div>
+      <div class="card">
+        <h3>Preview ao vivo no app</h3>
+        <p>Visor em tela cheia com a câmera renderizada de verdade, igual qualquer app de câmera.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Instalação rápida</h2>
+    <h3>1. No PC (plugin do OBS)</h3>
+    <ol class="steps">
+      <li>Baixe o instalador e execute (não precisa ser Administrador).</li>
+      <li>Abra (ou reabra) o OBS Studio.</li>
+      <li>Numa cena, clique em <strong>+</strong> e adicione a fonte <strong>"UCSP Camera Source"</strong>.</li>
+      <li>Anote a porta configurada (padrão <code>5600</code>).</li>
+    </ol>
+    <h3>2. No celular (app Android)</h3>
+    <ol class="steps">
+      <li>Instale o APK (permita "fontes desconhecidas" se o Android pedir).</li>
+      <li>Conecte o celular na <strong>mesma rede Wi-Fi</strong> do PC.</li>
+      <li>Informe o IP do PC e a porta no app.</li>
+      <li>Escolha resolução/FPS e toque em <strong>Iniciar transmissão</strong>.</li>
+    </ol>
+  </section>
+
+  <footer>
+    <p>
+      <a href="https://github.com/estevaosouuza/ucspsender">github.com/estevaosouuza/ucspsender</a>
+      · Licença <a href="https://github.com/estevaosouuza/ucspsender/blob/master/LICENSE">GPL-2.0</a>
+      · <a href="https://github.com/estevaosouuza/ucspsender/blob/master/docs/protocol/ucsp-spec.md">Especificação do protocolo</a>
+    </p>
+  </footer>
+
+</main>
+</body>
+</html>
