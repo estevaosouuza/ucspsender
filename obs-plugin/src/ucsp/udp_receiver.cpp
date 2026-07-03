@@ -63,7 +63,14 @@ bool UdpReceiver::start(uint16_t listen_port, PacketCallback callback)
 	bind_addr.sin_port = htons(listen_port);
 
 	if (bind(socket_, reinterpret_cast<sockaddr *>(&bind_addr), sizeof(bind_addr)) == SOCKET_ERROR) {
-		obs_log(LOG_ERROR, "ucsp: failed to bind UDP socket on port %d", listen_port);
+		int err = WSAGetLastError();
+		if (err == WSAEADDRINUSE) {
+			obs_log(LOG_ERROR,
+				"ucsp: port %d is already in use -- is another 'UCSP Camera Source' already added in a scene (maybe under its other-language name)? Only one source can listen on a given port at a time.",
+				listen_port);
+		} else {
+			obs_log(LOG_ERROR, "ucsp: failed to bind UDP socket on port %d (error %d)", listen_port, err);
+		}
 		closesocket(socket_);
 		socket_ = INVALID_SOCKET;
 		wsa_release();
