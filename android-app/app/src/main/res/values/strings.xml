@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">UCSP Sender</string>
+    <string name="label_pc_ip">Endereço IP do PC</string>
+    <string name="label_pc_port">Porta</string>
+    <string name="button_start">Iniciar transmissão</string>
+    <string name="button_stop">Parar transmissão</string>
+    <string name="status_idle">Parado</string>
+    <string name="status_streaming">Transmitindo</string>
+</resources>
