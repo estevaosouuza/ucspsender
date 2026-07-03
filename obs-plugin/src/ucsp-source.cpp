@@ -106,6 +106,7 @@ void *ucsp_source_create(obs_data_t *settings, obs_source_t *source)
 
 	ctx->decoder.set_frame_callback(
 		[ctx](const AVFrame *frame, uint64_t pts_us) { push_frame_to_obs(ctx->source, frame, pts_us); });
+	ctx->decoder.set_decode_error_callback([ctx]() { ctx->backchannel_sender.request_keyframe_now(); });
 
 	ctx->backchannel_sender.set_stats_provider([ctx]() { return ctx->reassembler.snapshot_and_reset_window_stats(); });
 

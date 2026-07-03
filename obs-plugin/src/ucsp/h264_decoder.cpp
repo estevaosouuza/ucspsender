@@ -59,7 +59,9 @@ void H264Decoder::decode(const uint8_t *annex_b_data, size_t len, uint64_t pts_u
 
 	int ret = avcodec_send_packet(codec_ctx_, packet_);
 	if (ret < 0) {
-		obs_log(LOG_WARNING, "ucsp: avcodec_send_packet failed (%d)", ret);
+		obs_log(LOG_WARNING, "ucsp: avcodec_send_packet failed (%d) -- likely missing a keyframe (decoder has no SPS/PPS yet)", ret);
+		if (on_decode_error_)
+			on_decode_error_();
 		return;
 	}
 

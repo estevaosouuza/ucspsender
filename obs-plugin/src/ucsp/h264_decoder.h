@@ -31,6 +31,13 @@ public:
 
 	void set_frame_callback(DecodedFrameCallback cb) { on_frame_ = std::move(cb); }
 
+	// Fired whenever avcodec_send_packet() rejects a frame -- almost always because the
+	// decoder hasn't seen a keyframe (with inline SPS/PPS) yet, e.g. right after the OBS
+	// source (re)starts while the phone is already mid-stream. The caller should request
+	// a fresh keyframe from the phone when this fires.
+	using DecodeErrorCallback = std::function<void()>;
+	void set_decode_error_callback(DecodeErrorCallback cb) { on_decode_error_ = std::move(cb); }
+
 	// annex_b_data must stay valid for the duration of this call.
 	void decode(const uint8_t *annex_b_data, size_t len, uint64_t pts_us);
 
@@ -39,6 +46,7 @@ private:
 	AVPacket *packet_ = nullptr;
 	AVFrame *frame_ = nullptr;
 	DecodedFrameCallback on_frame_;
+	DecodeErrorCallback on_decode_error_;
 };
 
 } // namespace ucsp

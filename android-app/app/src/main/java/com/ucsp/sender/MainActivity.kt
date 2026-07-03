@@ -27,6 +27,10 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val STATE_IS_STREAMING = "is_streaming"
+        private const val STATE_PC_IP = "pc_ip"
+        private const val STATE_PC_PORT = "pc_port"
+        private const val STATE_RESOLUTION_INDEX = "resolution_index"
+        private const val STATE_FPS_INDEX = "fps_index"
 
         // Index-matched to R.array.resolution_labels / R.array.fps_labels, ordered
         // lowest-latency-first (lower resolution/fps = less data to encode and send per
@@ -69,6 +73,15 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (savedInstanceState?.getBoolean(STATE_IS_STREAMING) == true) {
+            // Explicitly re-apply the fields we need instead of relying on the standard
+            // view-state restore, which runs *after* onCreate() (in onRestoreInstanceState)
+            // -- reading binding.editPcIp.text here before that happens would see an empty
+            // field, silently sending to loopback instead of the PC. This is exactly what
+            // broke streaming across a screen rotation.
+            binding.editPcIp.setText(savedInstanceState.getString(STATE_PC_IP, ""))
+            binding.editPcPort.setText(savedInstanceState.getInt(STATE_PC_PORT, 0).toString())
+            binding.spinnerResolution.setSelection(savedInstanceState.getInt(STATE_RESOLUTION_INDEX, DEFAULT_RESOLUTION_INDEX))
+            binding.spinnerFps.setSelection(savedInstanceState.getInt(STATE_FPS_INDEX, DEFAULT_FPS_INDEX))
             requestCameraThenStart()
         }
     }
@@ -76,6 +89,10 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putBoolean(STATE_IS_STREAMING, isStreaming)
+        outState.putString(STATE_PC_IP, binding.editPcIp.text.toString())
+        outState.putInt(STATE_PC_PORT, binding.editPcPort.text.toString().toIntOrNull() ?: 0)
+        outState.putInt(STATE_RESOLUTION_INDEX, binding.spinnerResolution.selectedItemPosition)
+        outState.putInt(STATE_FPS_INDEX, binding.spinnerFps.selectedItemPosition)
     }
 
     override fun onStart() {
@@ -152,7 +169,7 @@ class MainActivity : AppCompatActivity() {
         camera.start(
             encoderSurface, width, height, fps,
             onFatalError = { e -> handleFatalError("Falha ao iniciar a câmera", e) }
-        )
+        ) { bitmap -> runOnUiThread { binding.previewImage.setImageBitmap(bitmap) } }
 
         thermalMonitor = ThermalMonitor(this).apply { start() }
 
