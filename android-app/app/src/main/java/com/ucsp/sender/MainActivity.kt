@@ -3,14 +3,18 @@ package com.ucsp.sender
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.SurfaceTexture
 import android.os.Bundle
 import android.util.Log
+import android.view.Surface
+import android.view.TextureView
 import android.widget.AdapterView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.ucsp.sender.adaptive.AdaptiveController
 import com.ucsp.sender.capture.CameraController
+import com.ucsp.sender.capture.CameraRenderer
 import com.ucsp.sender.databinding.ActivityMainBinding
 import com.ucsp.sender.encode.H264Encoder
 import com.ucsp.sender.network.BackchannelReport
@@ -50,6 +54,7 @@ class MainActivity : AppCompatActivity() {
     private val adaptiveController = AdaptiveController()
 
     private var cameraController: CameraController? = null
+    private var cameraRenderer: CameraRenderer? = null
     private var encoder: H264Encoder? = null
     private var sender: UcspSender? = null
     private var thermalMonitor: ThermalMonitor? = null
@@ -70,6 +75,23 @@ class MainActivity : AppCompatActivity() {
 
         wifiSignalMonitor = WifiSignalMonitor(this) { level, maxLevel ->
             runOnUiThread { binding.textSignal.text = getString(R.string.signal_format, level, maxLevel) }
+        }
+
+        binding.previewTexture.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+            override fun onSurfaceTextureAvailable(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
+                cameraRenderer?.setPreviewSurface(Surface(surfaceTexture), width, height)
+            }
+
+            override fun onSurfaceTextureSizeChanged(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
+                cameraRenderer?.setPreviewSurface(Surface(surfaceTexture), width, height)
+            }
+
+            override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+                cameraRenderer?.setPreviewSurface(null, 0, 0)
+                return true
+            }
+
+            override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
         }
 
         if (savedInstanceState?.getBoolean(STATE_IS_STREAMING) == true) {
@@ -164,12 +186,23 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        val renderer = CameraRenderer()
+        cameraRenderer = renderer
+        val cameraFacingSurface = renderer.start(encoderSurface, width, height)
+        if (binding.previewTexture.isAvailable) {
+            renderer.setPreviewSurface(
+                Surface(binding.previewTexture.surfaceTexture),
+                binding.previewTexture.width,
+                binding.previewTexture.height
+            )
+        }
+
         val camera = CameraController(this, this)
         cameraController = camera
         camera.start(
-            encoderSurface, width, height, fps,
+            cameraFacingSurface, width, height, fps,
             onFatalError = { e -> handleFatalError("Falha ao iniciar a câmera", e) }
-        ) { bitmap -> runOnUiThread { binding.previewImage.setImageBitmap(bitmap) } }
+        )
 
         thermalMonitor = ThermalMonitor(this).apply { start() }
 
@@ -189,6 +222,8 @@ class MainActivity : AppCompatActivity() {
     private fun stopStreaming() {
         cameraController?.stop()
         cameraController = null
+        cameraRenderer?.release()
+        cameraRenderer = null
         encoder?.release()
         encoder = null
         sender?.let { s -> networkExecutor.execute { s.stop() } }
@@ -217,6 +252,7 @@ class MainActivity : AppCompatActivity() {
         if (isStreaming) {
             Log.i(TAG, "Activity destroyed while streaming (e.g. rotation) -- pipeline torn down, will restart in new instance")
             cameraController?.stop()
+            cameraRenderer?.release()
             encoder?.release()
             sender?.let { s -> networkExecutor.execute { s.stop() } }
             thermalMonitor?.stop()
