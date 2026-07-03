@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import android.widget.AdapterView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.ucsp.sender.adaptive.AdaptiveController
@@ -122,13 +123,17 @@ class MainActivity : AppCompatActivity() {
             width = width,
             height = height,
             fps = fps,
-            bitrateBps = BITRATE_BPS
+            bitrateBps = BITRATE_BPS,
+            onFatalError = { e -> handleFatalError("Falha ao iniciar o encoder de vídeo", e) }
         ) { accessUnit, isKeyframe, presentationTimeUs ->
             val datagrams = packetizer.packetize(accessUnit, isKeyframe, presentationTimeUs)
             networkExecutor.execute { sender?.send(datagrams) }
         }
         encoder = h264Encoder
-        h264Encoder.start()
+        if (!h264Encoder.start()) {
+            encoder = null
+            return
+        }
 
         networkExecutor.execute {
             val ucspSender = UcspSender(pcIp, pcPort, backchannelListener)
@@ -138,7 +143,10 @@ class MainActivity : AppCompatActivity() {
 
         val camera = CameraController(this, this)
         cameraController = camera
-        camera.start(binding.previewView, width, height, fps) { image, presentationTimeUs ->
+        camera.start(
+            binding.previewView, width, height, fps,
+            onFatalError = { e -> handleFatalError("Falha ao iniciar a câmera", e) }
+        ) { image, presentationTimeUs ->
             h264Encoder.feedFrame(image, presentationTimeUs)
         }
 
@@ -172,6 +180,16 @@ class MainActivity : AppCompatActivity() {
         isStreaming = false
         binding.buttonStartStop.setText(R.string.button_start)
         binding.textStatus.setText(R.string.status_idle)
+    }
+
+    private fun handleFatalError(message: String, e: Throwable) {
+        Log.e(TAG, message, e)
+        runOnUiThread {
+            Toast.makeText(this, "$message: ${e.message}", Toast.LENGTH_LONG).show()
+            // Tear down whatever partially started; stopStreaming() is safe to call even
+            // if some pieces (camera, sender) never got created.
+            stopStreaming()
+        }
     }
 
     override fun onDestroy() {

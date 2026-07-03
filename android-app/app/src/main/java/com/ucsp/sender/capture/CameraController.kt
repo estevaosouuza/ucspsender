@@ -2,6 +2,7 @@ package com.ucsp.sender.capture
 
 import android.content.Context
 import android.media.Image
+import android.util.Log
 import android.util.Range
 import android.util.Size
 import android.view.Surface
@@ -30,6 +31,10 @@ class CameraController(
     private val context: Context,
     private val lifecycleOwner: LifecycleOwner
 ) {
+    companion object {
+        private const val TAG = "CameraController"
+    }
+
     private var cameraProvider: ProcessCameraProvider? = null
     private val analysisExecutor = Executors.newSingleThreadExecutor()
 
@@ -39,42 +44,53 @@ class CameraController(
         width: Int,
         height: Int,
         fps: Int,
+        onFatalError: (Throwable) -> Unit = {},
         onFrame: (image: Image, presentationTimeUs: Long) -> Unit
     ) {
         val providerFuture = ProcessCameraProvider.getInstance(context)
         providerFuture.addListener({
-            val provider = providerFuture.get()
-            cameraProvider = provider
+            try {
+                val provider = providerFuture.get()
+                cameraProvider = provider
 
-            val preview = Preview.Builder()
-                .setTargetResolution(Size(width, height))
-                .build()
-            preview.setSurfaceProvider(previewView.surfaceProvider)
+                val preview = Preview.Builder()
+                    .setTargetResolution(Size(width, height))
+                    .build()
+                preview.setSurfaceProvider(previewView.surfaceProvider)
 
-            val analysisBuilder = ImageAnalysis.Builder()
-                .setTargetResolution(Size(width, height))
-                .setTargetRotation(Surface.ROTATION_0)
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
+                val analysisBuilder = ImageAnalysis.Builder()
+                    .setTargetResolution(Size(width, height))
+                    .setTargetRotation(Surface.ROTATION_0)
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
 
-            Camera2Interop.Extender(analysisBuilder)
-                .setCaptureRequestOption(
-                    android.hardware.camera2.CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
-                    Range(fps, fps)
-                )
+                Camera2Interop.Extender(analysisBuilder)
+                    .setCaptureRequestOption(
+                        android.hardware.camera2.CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
+                        Range(fps, fps)
+                    )
 
-            val analysis = analysisBuilder.build()
-            analysis.setAnalyzer(analysisExecutor) { imageProxy ->
-                val image = imageProxy.image
-                if (image != null) {
-                    val presentationTimeUs = imageProxy.imageInfo.timestamp / 1000
-                    onFrame(image, presentationTimeUs)
+                val analysis = analysisBuilder.build()
+                analysis.setAnalyzer(analysisExecutor) { imageProxy ->
+                    try {
+                        val image = imageProxy.image
+                        if (image != null) {
+                            val presentationTimeUs = imageProxy.imageInfo.timestamp / 1000
+                            onFrame(image, presentationTimeUs)
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Dropping camera frame: analyzer failed", e)
+                    } finally {
+                        imageProxy.close()
+                    }
                 }
-                imageProxy.close()
-            }
 
-            provider.unbindAll()
-            provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                provider.unbindAll()
+                provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to start camera", e)
+                onFatalError(e)
+            }
         }, ContextCompat.getMainExecutor(context))
     }
 

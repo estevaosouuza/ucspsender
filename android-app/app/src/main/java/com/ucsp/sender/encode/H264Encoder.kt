@@ -22,13 +22,16 @@ import kotlin.concurrent.thread
  * Runs in MediaCodec's classic synchronous mode: [feedFrame] is called directly from the
  * camera's analyzer thread and dequeues an input buffer with a short timeout -- if the
  * encoder has no free buffer yet (falling behind), the frame is dropped instead of
- * blocking the camera pipeline, matching the "degrade, never freeze" philosophy.
+ * blocking the camera pipeline, matching the "degrade, never freeze" philosophy. Any
+ * unexpected error is reported via [onFatalError] instead of crashing the app, since
+ * hardware encoder quirks vary a lot across devices.
  */
 class H264Encoder(
     private val width: Int,
     private val height: Int,
     private val fps: Int = 30,
     private val bitrateBps: Int = 4_000_000,
+    private val onFatalError: (Throwable) -> Unit = {},
     private val onEncodedFrame: (accessUnit: ByteArray, isKeyframe: Boolean, presentationTimeUs: Long) -> Unit
 ) {
     companion object {
@@ -38,68 +41,110 @@ class H264Encoder(
         private const val OUTPUT_DEQUEUE_TIMEOUT_US = 10_000L
     }
 
-    private lateinit var codec: MediaCodec
+    private var codec: MediaCodec? = null
     private var cachedCodecConfig: ByteArray? = null
     private var outputThread: Thread? = null
 
     @Volatile
     private var running = false
 
-    fun start() {
-        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
-            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
-            setInteger(MediaFormat.KEY_BIT_RATE, bitrateBps)
-            setInteger(MediaFormat.KEY_FRAME_RATE, fps)
-            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, GOP_SECONDS)
-            setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
-            setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
-            setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel31)
-        }
+    /** Returns true if the encoder started successfully; false (with [onFatalError] fired) otherwise. */
+    fun start(): Boolean {
+        return try {
+            val newCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+            val colorFormat = selectSupportedColorFormat(newCodec)
 
-        codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
-        codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        codec.start()
-        running = true
-        outputThread = thread(name = "H264EncoderOutput") { drainOutputLoop() }
+            val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
+                setInteger(MediaFormat.KEY_COLOR_FORMAT, colorFormat)
+                setInteger(MediaFormat.KEY_BIT_RATE, bitrateBps)
+                setInteger(MediaFormat.KEY_FRAME_RATE, fps)
+                setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, GOP_SECONDS)
+                setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR)
+                setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline)
+                setInteger(MediaFormat.KEY_LEVEL, MediaCodecInfo.CodecProfileLevel.AVCLevel31)
+            }
+
+            newCodec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            newCodec.start()
+            codec = newCodec
+            running = true
+            outputThread = thread(name = "H264EncoderOutput") { drainOutputLoop() }
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start H.264 encoder", e)
+            onFatalError(e)
+            false
+        }
+    }
+
+    /**
+     * Not every device's hardware encoder accepts COLOR_FormatYUV420Flexible directly in
+     * configure(), even though MediaCodec.getInputImage() is documented to work with it --
+     * this varies by vendor. Prefer Flexible when the encoder actually advertises it, else
+     * fall back to a concrete planar/semiplanar format it does advertise.
+     */
+    private fun selectSupportedColorFormat(mediaCodec: MediaCodec): Int {
+        val supported = try {
+            mediaCodec.codecInfo.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC).colorFormats
+        } catch (e: Exception) {
+            intArrayOf()
+        }
+        val preferenceOrder = intArrayOf(
+            MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible,
+            MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar,
+            MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar
+        )
+        for (candidate in preferenceOrder) {
+            if (supported.contains(candidate)) return candidate
+        }
+        return MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible
     }
 
     /**
      * Copies [cameraImage]'s planes into a free encoder input buffer and queues it.
-     * Returns false (frame dropped) if the encoder has no input buffer free right now.
+     * Returns false (frame dropped) if the encoder isn't running, has no input buffer
+     * free right now, or the copy/queue fails for any reason.
      */
     fun feedFrame(cameraImage: Image, presentationTimeUs: Long): Boolean {
-        val index = try {
-            codec.dequeueInputBuffer(INPUT_DEQUEUE_TIMEOUT_US)
-        } catch (e: IllegalStateException) {
-            return false
-        }
-        if (index < 0) return false
+        val mediaCodec = codec ?: return false
+        return try {
+            val index = mediaCodec.dequeueInputBuffer(INPUT_DEQUEUE_TIMEOUT_US)
+            if (index < 0) return false
 
-        val inputImage = codec.getInputImage(index)
-        if (inputImage == null) {
-            codec.queueInputBuffer(index, 0, 0, presentationTimeUs, 0)
-            return false
-        }
+            val inputImage = mediaCodec.getInputImage(index)
+            if (inputImage == null) {
+                mediaCodec.queueInputBuffer(index, 0, 0, presentationTimeUs, 0)
+                return false
+            }
 
-        copyImagePlanes(cameraImage, inputImage)
-        val size = width * height * 3 / 2
-        codec.queueInputBuffer(index, 0, size, presentationTimeUs, 0)
-        return true
+            copyImagePlanes(cameraImage, inputImage)
+            val size = width * height * 3 / 2
+            mediaCodec.queueInputBuffer(index, 0, size, presentationTimeUs, 0)
+            true
+        } catch (e: Exception) {
+            Log.w(TAG, "Dropping frame: failed to feed encoder", e)
+            false
+        }
     }
 
     private fun drainOutputLoop() {
         val bufferInfo = MediaCodec.BufferInfo()
+        val mediaCodec = codec ?: return
         while (running) {
             val index = try {
-                codec.dequeueOutputBuffer(bufferInfo, OUTPUT_DEQUEUE_TIMEOUT_US)
+                mediaCodec.dequeueOutputBuffer(bufferInfo, OUTPUT_DEQUEUE_TIMEOUT_US)
             } catch (e: IllegalStateException) {
                 break
             }
             if (index < 0) continue
 
-            val outputBuffer = codec.getOutputBuffer(index)
-            if (outputBuffer != null) handleOutputBuffer(outputBuffer, bufferInfo)
-            codec.releaseOutputBuffer(index, false)
+            try {
+                val outputBuffer = mediaCodec.getOutputBuffer(index)
+                if (outputBuffer != null) handleOutputBuffer(outputBuffer, bufferInfo)
+                mediaCodec.releaseOutputBuffer(index, false)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to handle encoder output buffer", e)
+            }
         }
     }
 
@@ -122,20 +167,26 @@ class H264Encoder(
     }
 
     fun requestKeyframe() {
-        val params = Bundle()
-        params.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
-        codec.setParameters(params)
+        try {
+            val params = Bundle()
+            params.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0)
+            codec?.setParameters(params)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to request keyframe", e)
+        }
     }
 
     fun release() {
         running = false
         outputThread?.join(500)
+        val mediaCodec = codec ?: return
         try {
-            codec.stop()
+            mediaCodec.stop()
         } catch (e: IllegalStateException) {
             Log.w(TAG, "Encoder was not running at release time", e)
         }
-        codec.release()
+        mediaCodec.release()
+        codec = null
     }
 
     private fun copyImagePlanes(src: Image, dst: Image) {
