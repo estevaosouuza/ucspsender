@@ -5,6 +5,7 @@ import android.util.Log
 import android.util.Range
 import android.util.Size
 import android.view.Surface
+import android.view.WindowManager
 import androidx.camera.camera2.interop.Camera2Interop
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.CameraSelector
@@ -45,6 +46,7 @@ class CameraController(
 
                 val previewBuilder = Preview.Builder()
                     .setTargetResolution(Size(width, height))
+                    .setTargetRotation(currentDisplayRotation())
 
                 Camera2Interop.Extender(previewBuilder)
                     .setCaptureRequestOption(
@@ -69,5 +71,19 @@ class CameraController(
     fun stop() {
         cameraProvider?.unbindAll()
         cameraProvider = null
+    }
+
+    /**
+     * Preview.Builder() has no attached View to infer orientation from here (it renders
+     * into CameraRenderer's SurfaceTexture, not a PreviewView), so left unset it falls
+     * back to a guess that doesn't reliably match how the phone is actually held --
+     * that mismatch is what showed up as an upside-down image. Querying the real
+     * current display rotation and passing it explicitly is what a PreviewView would
+     * have done internally.
+     */
+    @Suppress("DEPRECATION")
+    private fun currentDisplayRotation(): Int {
+        val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        return windowManager.defaultDisplay.rotation
     }
 }
