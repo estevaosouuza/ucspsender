@@ -2,7 +2,9 @@ package com.ucsp.sender.network
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.util.Log
 import java.io.IOException
 import java.net.DatagramPacket
@@ -28,6 +30,8 @@ class UcspSender(
     }
 
     private val appContext = context.applicationContext
+    private val connectivityManager =
+        appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
     private val socket = DatagramSocket()
     private val remoteAddress: InetAddress = InetAddress.getByName(remoteHost)
 
@@ -35,9 +39,10 @@ class UcspSender(
     private var running = false
     private var receiveThread: Thread? = null
     private var sentDatagramCount = 0L
+    private var wifiNetworkCallback: ConnectivityManager.NetworkCallback? = null
 
     init {
-        bindToWifiNetworkIfAvailable()
+        trackWifiNetwork()
     }
 
     // Many networks used with this app have no internet access (a LAN-only PC+phone
@@ -47,20 +52,37 @@ class UcspSender(
     // reaches the PC. Binding the socket to whichever network currently reports a Wi-Fi
     // transport makes traffic follow that network's own routing table regardless of
     // internet validation status.
-    private fun bindToWifiNetworkIfAvailable() {
+    //
+    // A one-time bind isn't enough: switching Wi-Fi networks mid-stream (different SSID,
+    // or even toggling Wi-Fi off/on) destroys the Network the socket was bound to, and a
+    // socket bound to a dead network silently stops delivering. Watching for Wi-Fi network
+    // changes and re-binding on every onAvailable() keeps the stream alive across a live
+    // network switch instead of requiring the user to stop/start streaming again.
+    private fun trackWifiNetwork() {
+        val cm = connectivityManager ?: return
+        // NetworkRequest.Builder() requires NET_CAPABILITY_INTERNET by default, which some
+        // LAN-only setups (a dedicated router with no uplink) never satisfy even though
+        // the Wi-Fi network itself works fine for local traffic -- drop that requirement so
+        // this matches any Wi-Fi network regardless of internet/validation status.
+        val request = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                try {
+                    network.bindSocket(socket)
+                    Log.i(TAG, "Socket bound to Wi-Fi network (available/changed)")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to bind socket to Wi-Fi network, using default routing", e)
+                }
+            }
+        }
         try {
-            val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
-            val wifiNetwork = cm.allNetworks.firstOrNull { network ->
-                cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
-            }
-            if (wifiNetwork == null) {
-                Log.w(TAG, "No active Wi-Fi network found to bind to, using default routing")
-                return
-            }
-            wifiNetwork.bindSocket(socket)
-            Log.i(TAG, "Socket explicitly bound to the active Wi-Fi network")
+            cm.registerNetworkCallback(request, callback)
+            wifiNetworkCallback = callback
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to bind socket to Wi-Fi network, using default routing", e)
+            Log.w(TAG, "Failed to register Wi-Fi network callback, using default routing", e)
         }
     }
 
@@ -90,6 +112,14 @@ class UcspSender(
         running = false
         receiveThread?.join(500)
         socket.close()
+        wifiNetworkCallback?.let { callback ->
+            try {
+                connectivityManager?.unregisterNetworkCallback(callback)
+            } catch (e: IllegalArgumentException) {
+                // already unregistered (e.g. the callback never successfully registered)
+            }
+        }
+        wifiNetworkCallback = null
     }
 
     private fun receiveLoop() {
