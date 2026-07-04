@@ -49,24 +49,18 @@ alvo de **80–300 ms**, mesmo em rede ruim.
 
 ## ✨ Como funciona
 
-```
-┌─────────────────────────┐                              ┌──────────────────────────────┐
-│   App Android (sender)  │                              │  Plugin OBS (ucsp_source)    │
-│                          │                              │                               │
-│  Câmera ──▶ MediaCodec   │                              │  UDP Receiver                │
-│  (H.264 Baseline,        │   UDP puro, pacotes de       │    │                          │
-│   sem B-frame, GOP curto)│   ~1,4 KB, FEC (XOR)          │    ▼                          │
-│        │                 │  ────────────────────────▶   │  Reassembly por FrameId       │
-│        ▼                 │                              │  (descarta rápido, nunca      │
-│  Packetizer UCSP          │                              │   trava esperando)            │
-│        │                 │   ◀──── backchannel ────      │    │                          │
-│        ▼                 │   (stats, pedido de           │    ▼                          │
-│  UDP Sender               │    keyframe sob demanda)      │  Decode H.264 (FFmpeg)        │
-└─────────────────────────┘                              │    │                          │
-                                                            │    ▼                          │
-                                                            │  Fonte de vídeo no OBS         │
-                                                            └──────────────────────────────┘
-```
+| 📱 App Android (sender) | 🖥 Plugin OBS (`ucsp_source`) |
+|---|---|
+| Câmera | UDP Receiver |
+| ↓ | ↓ |
+| MediaCodec — H.264 Baseline, sem B-frame, GOP curto | Reassembly por FrameId — descarta rápido, nunca trava esperando |
+| ↓ | ↓ |
+| Packetizer UCSP — fragmenta em pacotes de ~1,4 KB + paridade XOR (FEC) | Decode H.264 (FFmpeg) |
+| ↓ | ↓ |
+| UDP Sender | Fonte de vídeo no OBS |
+
+**→ vídeo:** UDP puro + FEC, do app pro plugin.
+**← backchannel:** stats de perda/jitter + pedido de keyframe sob demanda, do plugin pro app (~50ms).
 
 - **App Android**: captura a câmera, codifica em H.264 (perfil Baseline, sem B-frames,
   GOP de ~1s para recuperação rápida), fragmenta em pacotes UDP pequenos com paridade XOR
