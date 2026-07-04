@@ -84,7 +84,11 @@ private:
 	void on_packet(uint16_t port, const sockaddr_in &from_addr, const Header &header, const uint8_t *payload,
 		       size_t payload_len);
 
-	mutable std::mutex mutex_;
+	// Recursive: on_packet() dispatches to subscriber callbacks while holding this lock,
+	// and a callback can legitimately re-enter the registry on the same thread (e.g. a
+	// discarded-frame handler requesting a keyframe, which needs socket_for_port()). A
+	// plain std::mutex would be undefined behavior in that case.
+	mutable std::recursive_mutex mutex_;
 	std::map<uint16_t, PortState> ports_;
 };
 

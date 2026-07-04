@@ -53,7 +53,7 @@ SenderRegistry &SenderRegistry::instance()
 
 bool SenderRegistry::subscribe(uint16_t port, const void *subscriber, PacketCallback callback)
 {
-	std::lock_guard<std::mutex> lock(mutex_);
+	std::lock_guard<std::recursive_mutex> lock(mutex_);
 
 	auto &state = ports_[port];
 	if (!state.receiver) {
@@ -76,7 +76,7 @@ bool SenderRegistry::subscribe(uint16_t port, const void *subscriber, PacketCall
 
 void SenderRegistry::unsubscribe(uint16_t port, const void *subscriber)
 {
-	std::lock_guard<std::mutex> lock(mutex_);
+	std::lock_guard<std::recursive_mutex> lock(mutex_);
 	auto it = ports_.find(port);
 	if (it == ports_.end())
 		return;
@@ -91,7 +91,7 @@ void SenderRegistry::unsubscribe(uint16_t port, const void *subscriber)
 
 void SenderRegistry::set_filter(uint16_t port, const void *subscriber, std::optional<sockaddr_in> filter_addr)
 {
-	std::lock_guard<std::mutex> lock(mutex_);
+	std::lock_guard<std::recursive_mutex> lock(mutex_);
 	auto it = ports_.find(port);
 	if (it == ports_.end())
 		return;
@@ -105,7 +105,7 @@ void SenderRegistry::set_filter(uint16_t port, const void *subscriber, std::opti
 
 SOCKET SenderRegistry::socket_for_port(uint16_t port) const
 {
-	std::lock_guard<std::mutex> lock(mutex_);
+	std::lock_guard<std::recursive_mutex> lock(mutex_);
 	auto it = ports_.find(port);
 	if (it == ports_.end() || !it->second.receiver)
 		return INVALID_SOCKET;
@@ -114,7 +114,7 @@ SOCKET SenderRegistry::socket_for_port(uint16_t port) const
 
 std::vector<std::string> SenderRegistry::known_sender_labels(uint16_t port) const
 {
-	std::lock_guard<std::mutex> lock(mutex_);
+	std::lock_guard<std::recursive_mutex> lock(mutex_);
 	std::vector<std::string> labels;
 	auto it = ports_.find(port);
 	if (it == ports_.end())
@@ -131,7 +131,7 @@ std::vector<std::string> SenderRegistry::known_sender_labels(uint16_t port) cons
 void SenderRegistry::on_packet(uint16_t port, const sockaddr_in &from_addr, const Header &header, const uint8_t *payload,
 			       size_t payload_len)
 {
-	std::lock_guard<std::mutex> lock(mutex_);
+	std::lock_guard<std::recursive_mutex> lock(mutex_);
 	auto it = ports_.find(port);
 	if (it == ports_.end())
 		return;
