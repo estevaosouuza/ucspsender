@@ -97,15 +97,6 @@ void UdpReceiver::stop()
 	wsa_release();
 }
 
-bool UdpReceiver::sender_address(sockaddr_in *out) const
-{
-	std::lock_guard<std::mutex> lock(addr_mutex_);
-	if (!has_sender_addr_)
-		return false;
-	*out = sender_addr_;
-	return true;
-}
-
 void UdpReceiver::receive_loop()
 {
 	std::vector<uint8_t> buffer(2048);
@@ -155,7 +146,7 @@ void UdpReceiver::receive_loop()
 		Header header = Header::parse(buffer.data());
 		size_t payload_len = static_cast<size_t>(received) - HEADER_SIZE;
 		if (callback_)
-			callback_(header, buffer.data() + HEADER_SIZE, payload_len);
+			callback_(from_addr, header, buffer.data() + HEADER_SIZE, payload_len);
 	}
 }
 

@@ -20,7 +20,8 @@ namespace ucsp {
 // the phone's address is learned from its first VIDEO_DATA packet).
 class UdpReceiver {
 public:
-	using PacketCallback = std::function<void(const Header &header, const uint8_t *payload, size_t payload_len)>;
+	using PacketCallback =
+		std::function<void(const sockaddr_in &from_addr, const Header &header, const uint8_t *payload, size_t payload_len)>;
 
 	UdpReceiver();
 	~UdpReceiver();
@@ -31,7 +32,6 @@ public:
 	bool start(uint16_t listen_port, PacketCallback callback);
 	void stop();
 
-	bool sender_address(sockaddr_in *out) const;
 	SOCKET raw_socket() const { return socket_; }
 
 private:

@@ -12,7 +12,12 @@ constexpr auto REPORT_INTERVAL = std::chrono::milliseconds(50);
 constexpr auto KEYFRAME_REQUEST_MIN_INTERVAL = std::chrono::milliseconds(300);
 } // namespace
 
-BackchannelSender::BackchannelSender(UdpReceiver &receiver, uint8_t stream_id) : receiver_(receiver), stream_id_(stream_id) {}
+BackchannelSender::BackchannelSender(SocketProvider socket_provider, TargetAddressProvider target_provider, uint8_t stream_id)
+	: socket_provider_(std::move(socket_provider)),
+	  target_provider_(std::move(target_provider)),
+	  stream_id_(stream_id)
+{
+}
 
 BackchannelSender::~BackchannelSender()
 {
@@ -73,8 +78,12 @@ void BackchannelSender::request_keyframe_now()
 void BackchannelSender::send_packet(uint8_t packet_type, const uint8_t *payload, size_t payload_len)
 {
 	sockaddr_in target{};
-	if (!receiver_.sender_address(&target))
+	if (!target_provider_ || !target_provider_(&target))
 		return; // haven't heard from the phone yet, nothing to reply to
+
+	SOCKET sock = socket_provider_ ? socket_provider_() : INVALID_SOCKET;
+	if (sock == INVALID_SOCKET)
+		return;
 
 	Header header;
 	header.packet_type = packet_type;
@@ -87,7 +96,7 @@ void BackchannelSender::send_packet(uint8_t packet_type, const uint8_t *payload,
 	if (payload_len > 0)
 		memcpy(datagram.data() + HEADER_SIZE, payload, payload_len);
 
-	sendto(receiver_.raw_socket(), reinterpret_cast<const char *>(datagram.data()), static_cast<int>(datagram.size()), 0,
+	sendto(sock, reinterpret_cast<const char *>(datagram.data()), static_cast<int>(datagram.size()), 0,
 	       reinterpret_cast<sockaddr *>(&target), sizeof(target));
 }
 

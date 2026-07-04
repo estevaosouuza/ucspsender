@@ -44,6 +44,8 @@ target_sources(
     src/ucsp/ucsp_protocol.cpp
     src/ucsp/udp_receiver.h
     src/ucsp/udp_receiver.cpp
+    src/ucsp/sender_registry.h
+    src/ucsp/sender_registry.cpp
     src/ucsp/fec_decoder.h
     src/ucsp/fec_decoder.cpp
     src/ucsp/frame_reassembler.h
