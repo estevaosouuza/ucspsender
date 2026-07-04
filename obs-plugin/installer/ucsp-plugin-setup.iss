@@ -8,7 +8,7 @@
 ; Administrator or point it at their OBS install folder.
 
 #define MyAppName "UCSP Camera Source"
-#define MyAppVersion "0.1.1"
+#define MyAppVersion "0.1.3"
 #define MyAppPublisher "Estevao Souza"
 #define MyAppURL "https://github.com/estevaosouuza/ucspsender"
 #define BuildDir "..\build_x64\rundir\RelWithDebInfo"
