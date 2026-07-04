@@ -118,14 +118,82 @@
   .card h3 { margin: 0 0 8px; font-size: 1.02rem; }
   .card p { margin: 0; color: var(--text-dim); font-size: 0.94rem; }
 
-  .diagram {
+  .pipeline {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .pipeline-col {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .pipeline-col-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin-bottom: 14px;
+    text-align: center;
+  }
+  .stage {
     background: var(--bg-elev);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 20px;
-    overflow-x: auto;
+    border-radius: 10px;
+    padding: 12px 14px;
+    font-size: 0.88rem;
+    text-align: center;
   }
-  .diagram pre { border: none; background: none; margin: 0; font-size: 0.82rem; }
+  .stage small {
+    display: block;
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    margin-top: 4px;
+    font-weight: 400;
+  }
+  .stage-arrow {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 1.1rem;
+    padding: 4px 0;
+    line-height: 1;
+  }
+  .pipeline-links {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 28px;
+    padding: 0 6px;
+    min-width: 120px;
+  }
+  .link-row {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .link-row .link-arrow {
+    font-size: 1.3rem;
+    line-height: 1;
+  }
+  .link-row.forward .link-arrow { color: var(--accent); }
+  .link-row.backward .link-arrow { color: var(--accent-2); }
+  .link-row .link-label {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    text-align: center;
+    white-space: nowrap;
+  }
+  @media (max-width: 720px) {
+    .pipeline { grid-template-columns: 1fr; }
+    .pipeline-links {
+      flex-direction: row;
+      justify-content: space-around;
+      padding: 14px 0;
+      min-width: 0;
+    }
+    .link-row { flex-direction: row; gap: 8px; }
+    .link-row .link-label { white-space: normal; max-width: 140px; }
+  }
 
   table.downloads {
     width: 100%;
@@ -212,23 +280,40 @@
 
   <section>
     <h2>Como funciona</h2>
-    <div class="diagram">
-<pre><code>┌─────────────────────────┐                          ┌──────────────────────────────┐
-│   App Android (sender)  │                          │  Plugin OBS (ucsp_source)    │
-│                          │                          │                               │
-│  Câmera ──▶ MediaCodec   │                          │  UDP Receiver                 │
-│  (H.264 Baseline,        │  UDP puro, pacotes de    │    │                          │
-│   sem B-frame, GOP curto)│  ~1,4 KB, FEC (XOR)       │    ▼                          │
-│        │                 │ ────────────────────────▶│  Reassembly por FrameId       │
-│        ▼                 │                          │  (descarta rápido, nunca       │
-│  Packetizer UCSP          │                          │   trava esperando)            │
-│        │                 │  ◀──── backchannel ────  │    │                          │
-│        ▼                 │  (stats, pedido de        │    ▼                          │
-│  UDP Sender               │   keyframe sob demanda)   │  Decode H.264 (FFmpeg)        │
-└─────────────────────────┘                          │    │                          │
-                                                        │    ▼                          │
-                                                        │  Fonte de vídeo no OBS         │
-                                                        └──────────────────────────────┘</code></pre>
+    <p class="lede">Um pipeline enxuto dos dois lados — cada etapa existe pra não deixar o vídeo travar.</p>
+    <div class="pipeline">
+      <div class="pipeline-col">
+        <div class="pipeline-col-title">📱 App Android (sender)</div>
+        <div class="stage">Câmera</div>
+        <div class="stage-arrow">↓</div>
+        <div class="stage">MediaCodec<small>H.264 Baseline, sem B-frame, GOP curto</small></div>
+        <div class="stage-arrow">↓</div>
+        <div class="stage">Packetizer UCSP<small>fragmenta em pacotes de ~1,4&nbsp;KB + paridade XOR (FEC)</small></div>
+        <div class="stage-arrow">↓</div>
+        <div class="stage">UDP Sender</div>
+      </div>
+
+      <div class="pipeline-links">
+        <div class="link-row forward">
+          <span class="link-arrow">→</span>
+          <span class="link-label">vídeo · UDP puro + FEC</span>
+        </div>
+        <div class="link-row backward">
+          <span class="link-arrow">←</span>
+          <span class="link-label">backchannel · stats + pedido de keyframe</span>
+        </div>
+      </div>
+
+      <div class="pipeline-col">
+        <div class="pipeline-col-title">🖥 Plugin OBS (ucsp_source)</div>
+        <div class="stage">UDP Receiver</div>
+        <div class="stage-arrow">↓</div>
+        <div class="stage">Reassembly por FrameId<small>descarta rápido, nunca trava esperando</small></div>
+        <div class="stage-arrow">↓</div>
+        <div class="stage">Decode H.264 (FFmpeg)</div>
+        <div class="stage-arrow">↓</div>
+        <div class="stage">Fonte de vídeo no OBS</div>
+      </div>
     </div>
   </section>
 

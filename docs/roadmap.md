@@ -97,6 +97,46 @@ OBS plugin:
 5. Primeira medição de latência glass-to-glass documentada (método do relógio/tela,
    ver seção de testes no plano).
 
+### Diagnóstico: "OBS não está recebendo vídeo"
+
+Quando **zero pacotes chegam** (log do OBS não mostra nenhuma linha `first packet
+received from ...`), verifique nesta ordem:
+
+1. **IP/porta corretos no app** — o IP do PC muda se ele trocar de rede; confira com
+   `ipconfig` no PC e compare com o que está digitado no app.
+2. **Firewall do Windows** — precisa de uma regra de entrada (Inbound, Allow) para
+   `obs64.exe` no perfil de rede ativo (Domain/Private/Public — `Get-NetConnectionProfile`
+   mostra qual). O instalador do plugin não mexe no firewall automaticamente.
+3. **Isolamento de cliente (AP/client isolation) no roteador ou repetidor** — comum em
+   redes de convidados e em alguns repetidores/mesh: bloqueia tráfego *entre dispositivos*
+   da mesma rede mesmo com internet funcionando para cada um. Precisa ser desligado nas
+   configurações do roteador/repetidor; não tem como contornar por software.
+4. **Roteamento errado no celular** — se a rede Wi-Fi não tem acesso à internet (comum
+   nesse tipo de instalação local), o Android pode preferir a rede móvel para tráfego novo
+   mesmo com o Wi-Fi conectado. `UcspSender` já força o socket a sair pela rede Wi-Fi
+   ativa (`bindToWifiNetworkIfAvailable()`) especificamente por causa disso — se ainda
+   assim não funcionar, confirme que o celular está mesmo com Wi-Fi ativo (não só
+   "conectado, mas sem uso de dados") e que não há um app de VPN/proxy no celular
+   competindo pela rota padrão.
+5. **Porta duplicada** — duas fontes "UCSP Camera Source" na mesma porta: a segunda falha
+   o `bind()` (`WSAEADDRINUSE`, log explica isso). Use portas diferentes por telefone ou
+   (Fase 1+) a mesma porta com o dropdown de dispositivo (ver abaixo).
+
+### Multi-câmera: várias fontes, uma ou várias portas
+
+Duas formas de usar mais de um celular ao mesmo tempo, cada um em sua própria cena:
+
+- **Uma porta por celular** (mais simples): cada app aponta para uma porta diferente
+  (5600, 5601, ...) e cada fonte do OBS usa a porta correspondente. Não precisa de nada
+  além do que já existe.
+- **Uma porta só, várias fontes** (mais prático em evento — não precisa coordenar portas
+  entre telefones): todos os celulares apontam para a mesma porta; nas propriedades de
+  cada fonte do OBS, o dropdown **"Dispositivo"** lista quem está enviando pacotes
+  naquela porta agora (`IP:porta`, atualizado com o botão "Atualizar Lista de
+  Dispositivos") — escolha ali qual telefone essa fonte/cena deve mostrar. Com "Automático"
+  selecionado, a fonte só exibe vídeo enquanto houver exatamente um remetente ativo na
+  porta (evita misturar dois streams por engano).
+
 ## Fase 2 — Inteligência adaptativa
 
 - Motor adaptativo no Android consumindo stats do backchannel (bitrate via
@@ -117,5 +157,9 @@ OBS plugin:
 
 ## Fase 5 — Futuro / opcional
 
-- Multi-câmera com sync via `StreamId` + HELLO real
+- [x] Multi-câmera básico: seleção de dispositivo por IP no plugin (`SenderRegistry`,
+      dropdown "Dispositivo" nas propriedades da fonte) — várias fontes podem compartilhar
+      uma porta, cada uma travada num telefone diferente
+- [ ] Multi-câmera com sync via `StreamId` + HELLO real (identificação estável por
+      dispositivo em vez de IP, que muda se o DHCP renovar o endereço)
 - Sender nativo NDK/zero-copy (só se profiling mostrar que o caminho Kotlin é o gargalo)
