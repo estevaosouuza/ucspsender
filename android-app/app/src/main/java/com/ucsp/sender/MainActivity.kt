@@ -155,7 +155,7 @@ class MainActivity : AppCompatActivity() {
 
         networkExecutor.execute {
             try {
-                val ucspSender = UcspSender(pcIp, pcPort, backchannelListener)
+                val ucspSender = UcspSender(applicationContext, pcIp, pcPort, backchannelListener)
                 sender = ucspSender
                 ucspSender.start()
                 Log.i(TAG, "UcspSender started, target=$pcIp:$pcPort")
